@@ -1,0 +1,17 @@
+# ArmHeadGripper.srv
+# Request
+string mode          # "pick" or "place"
+float32 xmin         # Bounding box minimum x coordinate
+float32 ymin         # Bounding box minimum y coordinate  
+float32 xmax         # Bounding box maximum x coordinate
+float32 ymax         # Bounding box maximum y coordinate
+string class_name    # Object class name (e.g., "bottle", "cup", "can")
+
+---
+
+# Response
+bool success         # True if operation completed successfully
+string message       # Status message or error description
+float32 x            # Final robot frame x coordinate (for logging)
+float32 y            # Final robot frame y coordinate (for logging)
+float32 z            # Final robot frame z coordinate (for logging)

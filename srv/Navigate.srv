@@ -1,0 +1,5 @@
+# Navigate.srv
+string target_location
+---
+bool reach
+string message

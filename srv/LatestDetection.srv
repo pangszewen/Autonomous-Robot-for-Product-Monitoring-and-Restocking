@@ -1,0 +1,11 @@
+# Request
+---
+# Response
+int32[] xmin
+int32[] xmax
+int32[] ymin
+int32[] ymax
+float32[] confidence
+string[] class_name
+bool success
+string message

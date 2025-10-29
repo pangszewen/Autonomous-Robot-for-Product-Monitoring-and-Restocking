@@ -1,0 +1,21 @@
+<launch>
+    <!-- 1. Bring up robot base -->
+    <include file="$(find jupiterobot2_bringup)/launch/jupiterobot2_bringup.launch"/>
+
+
+    <!-- 3. Bring up top camera -->
+    <!-- <include file="$(find robotedge_jupiter_vision)/launch/astra.launch"/> -->
+    <!-- <include file="$(find jupiterobot2_bringup)/launch/multi_camera.launch"/>  -->
+    <include file="$(find robotedge_jupiter_vision)/launch/multi_astra.launch"/>
+
+
+    <!-- 4. Bring up camera & arm motor -->
+    <include file="$(find jupiterobot2_bringup)/launch/arm_head_bringup.launch"/>
+
+    
+    <!-- 2. Launch predefined map -->
+    <!-- MODIFY map_file value at wait_and_launch_navigation.sh to your own map -->
+    <node pkg="storing_groceries" type="wait_and_launch_navigation.sh" name="navigation_launcher" output="screen"/>
+    <!-- 5. Bring up arm move_it -->
+    <include file="$(find jupiterobot2_bringup)/launch/moveit_bringup.launch"/>
+</launch>

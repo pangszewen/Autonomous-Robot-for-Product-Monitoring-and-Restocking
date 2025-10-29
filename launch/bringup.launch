@@ -1,0 +1,12 @@
+<launch>
+    <!-- 1. Bring up robot base -->
+    <include file="$(find jupiterobot2_bringup)/launch/jupiterobot2_bringup.launch"/>
+
+    <!-- 2. Launch predefined map -->
+    <!-- MODIFY map_file value at wait_and_launch_navigation.sh to your own map -->
+    <node pkg="storing_groceries" type="wait_and_launch_navigation.sh" name="navigation_launcher" output="screen"/>
+
+    <!-- 3. Bring up top camera -->
+    <include file="$(find robotedge_jupiter_vision)/launch/astra.launch"/>
+    
+</launch>
