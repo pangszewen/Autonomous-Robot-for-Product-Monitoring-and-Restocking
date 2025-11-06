@@ -48,16 +48,15 @@ class GroceryDetection:
         
         # Object categories for storing groceries task - NEW MODEL
         self.OBJECT_CATEGORIES = {
-            'drinks': ['cola', 'coffee', 'water', 'milk'],
-            'food': ['cereal', 'cup noodle'],
-            'snacks': ['biscuit', 'paprika', 'potae', 'cornae', 'pringles', 'lay stax', 'pocky']
+            'drinks': ['water', 'coffee', 'juice', 'milk', 'soda'],
+            'food': ['tuna', 'cup noodle', 'cereal', 'jam', 'yogurt'],
+            'snacks': ['biscuits', 'chips', 'chocolate']
         }
-        
-        # HARDCODED RACK LOCATIONS for each category
+
         self.CATEGORY_LOCATIONS = {
-            'drinks': 'shelf 2',                   # Middle shelf, left side
-            'food': 'shelf 1',                   # Bottom shelf, middle (heavy items)
-            'snacks': 'shelf 2'                   # Top shelf, right side (light items)
+            'drinks': 'level 1',                   # Middle shelf, left side
+            'food': 'level 2',                   # Bottom shelf, middle (heavy items)
+            'snacks': 'level 3'                   # Top shelf, right side (light items)
         }
 
         # Real YOLO model class mappings - NEW MODEL
