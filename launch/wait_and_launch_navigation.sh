@@ -10,5 +10,5 @@ fi
 echo "/odom topic received. Launching navigation."
 
 # Now, launch your navigation node
-roslaunch jupiterobot2_navigation jupiterobot2_navigation.launch map_file:=/home/mustar/catkin_ws/maps/home2_2025.yaml
+roslaunch jupiterobot2_navigation jupiterobot2_navigation.launch map_file:=/home/mustar/catkin_ws/maps/pang_map.yaml
 #roslaunch robotedge_jupiter_navigation navigation.launch 

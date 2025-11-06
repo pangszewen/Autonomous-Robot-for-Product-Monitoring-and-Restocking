@@ -3,10 +3,10 @@
     <!-- Below format is to include python file in your launch file-->
     <!-- pkg="your_package", type="your_python_file_name.py" name="python_file_ros_node_name", output'"screen/log"-->
     <!--If you do not specify the output in your ROS launch file, the print() msg will not display on the screen -->
-    <node pkg="storing_groceries" type="detect.py" name="start_detection" output="screen"/>
-    <!--<node pkg="storing_groceries" type="target_tf.py" name="target_tf" output="screen"/>-->
-    <node pkg="storing_groceries" type="navigation.py" name="navi_point" output="screen"/>
-    <node pkg="storing_groceries" type="arm_grab.py" name="head_arm_hand" output="screen"/>
-    <node pkg="storing_groceries" type="example_main.py" name="example_main" output="screen"/>
+    <node pkg="fyp_pang" type="detect.py" name="start_detection" output="screen"/>
+    <!--<node pkg="fyp_pang" type="target_tf.py" name="target_tf" output="screen"/>-->
+    <node pkg="fyp_pang" type="navigation.py" name="navi_point" output="screen"/>
+    <node pkg="fyp_pang" type="arm_grab.py" name="head_arm_hand" output="screen"/>
+    <node pkg="fyp_pang" type="example_main.py" name="example_main" output="screen"/>
     
 </launch>

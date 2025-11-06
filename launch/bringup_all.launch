@@ -15,7 +15,7 @@
     
     <!-- 2. Launch predefined map -->
     <!-- MODIFY map_file value at wait_and_launch_navigation.sh to your own map -->
-    <node pkg="storing_groceries" type="wait_and_launch_navigation.sh" name="navigation_launcher" output="screen"/>
+    <node pkg="fyp_pang" type="wait_and_launch_navigation.sh" name="navigation_launcher" output="screen"/>
     <!-- 5. Bring up arm move_it -->
     <include file="$(find jupiterobot2_bringup)/launch/moveit_bringup.launch"/>
 </launch>

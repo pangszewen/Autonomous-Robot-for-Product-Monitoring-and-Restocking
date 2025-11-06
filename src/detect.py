@@ -13,9 +13,17 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from enum import Enum
 from cv_bridge import CvBridge, CvBridgeError
-from FYP_Pang.srv import StartDetection, StartDetectionResponse, LatestDetection, LatestDetectionResponse
+from fyp_pang.srv import StartDetection, StartDetectionResponse, LatestDetection, LatestDetectionResponse, StartMonitoring, StartMonitoringResponse
 import ultralytics
 import math
+import firebase_admin
+from firebase_admin import credentials, db
+
+# Initialize Firebase
+cred = credentials.Certificate("src\\serviceAccountKey.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': "https://product-monitoring-fe713-default-rtdb.asia-southeast1.firebasedatabase.app/"
+})
 
 class GroceryDetection:
     def __init__(self):
@@ -31,6 +39,7 @@ class GroceryDetection:
         self.CONFIDENCE_THRESHOLD = 0.7  # Using same confidence as ObjectPickerGUI
         self.service = rospy.Service('startDetect', StartDetection, self.handle_detection_request)
         self.service = rospy.Service('latestDetect', LatestDetection, self.get_latest_detections)
+        self.service = rospy.Service('startMonitoring', StartMonitoring, self.handle_monitoring_request)
         self.cv_image = None 
         self.GRIPPER_REGION = (-1, -1, -1, -1)
         self.display_image = None  # Initialize display image
@@ -67,6 +76,9 @@ class GroceryDetection:
             11: "pringles",
             12: "water"
         }
+
+        self.LOW_STOCK_THRESHOLD = 2
+        self.EXISTING_CLASSES = ['water', 'milk', 'soda']
 
         # announcement control
         self.last_announced_detection = None
@@ -251,6 +263,79 @@ class GroceryDetection:
             announcement = f"I detected a {object_name} but I'm not sure which category it belongs to."
         
         return announcement
+    
+    def update_firebase(self, class_counts):
+        """
+        Update product counts and low-stock information to Firebase.
+        Automatically triggers a simulated restocking process for low-stock items.
+        """
+        try:
+            db_ref = db.reference("product_counts")
+            low_stock_ref = db.reference("low_stock")
+
+            low_stock_items = []
+
+            # Update Firebase with current detected counts
+            for class_name, count in class_counts.items():
+                db_ref.child(class_name).update({'count': count})
+
+                # Check for low stock condition
+                if count < self.LOW_STOCK_THRESHOLD:
+                    low_stock_ref.child(class_name).set({
+                        'count': count,
+                        'status': 'Restocking Triggered'
+                    })
+                    low_stock_items.append(class_name)
+
+            # Handle items not currently detected
+            for class_name in self.EXISTING_CLASSES:
+                if class_name not in class_counts:
+                    db_ref.child(class_name).update({'count': 0})
+                    low_stock_ref.child(class_name).set({
+                        'count': 0,
+                        'status': 'Restocking Triggered'
+                    })
+                    if class_name not in low_stock_items:
+                        low_stock_items.append(class_name)
+
+            # Trigger restocking action for low stock items
+            if low_stock_items:
+                for item in low_stock_items:
+                    print(f"[ALERT] Low stock detected: {item}")
+                    print(f"[ACTION] Restocking for {item} started...\n")
+
+                # Optionally log restock events in Firebase
+                restock_log_ref = db.reference("restock_log")
+                for item in low_stock_items:
+                    restock_log_ref.push({
+                        'product': item,
+                        'status': 'Restock Initiated'
+                    })
+
+        except Exception as e:
+            print(f"[Firebase Error] {e}")
+    
+    def handle_monitoring_request(self, req):
+        detected_objects = self.detect_objects(self.latest_frame.copy())
+        rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
+        if detected_objects:
+            # Count how many times each object appears
+            object_counts = {}
+            for obj in detected_objects:
+                object_counts[obj] = object_counts.get(obj, 0) + 1
+
+            self.update_firebase(object_counts)
+            # Create a dictionary for low-stock objects (below threshold)
+            low_stock = {}
+            for obj, count in object_counts.items():  # use .items() to get both key and value
+                if count < 3:  # threshold condition
+                    low_stock[obj] = count  # store the object and its count
+
+            response = StartMonitoringResponse()
+            response.low_stock_name = list(low_stock.keys())
+            response.low_stock_count = list(low_stock.values())
+
+        return response
 
     def handle_detection_request(self, req):
         mode = req.mode
@@ -285,11 +370,18 @@ class GroceryDetection:
                         filtered = [obj for obj in detected_objects if obj['class'] == target_class]
                         best_object = max(filtered, key=lambda obj: obj['confidence'])
                     else:
-                        # Return the first detected object with highest confidence
-                        best_object = max(detected_objects, key=lambda obj: obj['confidence'])
-                        message += self.announce_detections(detected_objects)
-                        # ANNOUNCE THE CATEGORY OF THE PICKED OBJECT
-                        message += self.announce_object_category(best_object['class_name'])
+                        for i in range(3):
+                            detected_objects = self.detect_objects(self.latest_frame.copy())
+                            if target_class in detected_objects:
+                                filtered = [obj for obj in detected_objects if obj['class'] == target_class]
+                                best_object = max(filtered, key=lambda obj: obj['confidence'])
+                                break
+                            if i == 2:
+                                return StartDetectionResponse(
+                                    xmin=0, xmax=0, ymin=0, ymax=0,
+                                    class_name="", success=False,
+                                    message=f"No objects of class {target_class} detected"
+                                )
 
                     # Crop the reference image
                     cv_img = np.flip(self.cv_image, axis=1)

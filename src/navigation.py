@@ -9,7 +9,7 @@ from actionlib_msgs.msg import *
 from geometry_msgs.msg import Twist, Pose, PoseWithCovarianceStamped, Point, Quaternion
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from tf.transformations import quaternion_from_euler
-from storing_groceries.srv import Navigate, NavigateResponse
+from fyp_pang.srv import Navigate, NavigateResponse
 
 # Global variables for storing initial pose only once
 original = 0

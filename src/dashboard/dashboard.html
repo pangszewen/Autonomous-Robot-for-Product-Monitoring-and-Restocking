@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail Product Monitoring Dashboard</title>
+
+    <link rel="stylesheet" href="./style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@200;400;600&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js"></script>
+  </head>
+
+  <body>
+    <div class="header">
+      <h1>Product Inventory Dashboard</h1>
+    </div>
+
+    <div class="row1-container">
+      <div class="box cyan">
+        <h1>Water</h1>
+        <label id="water-count">1</label>
+        <div class="circle">
+          <img src="water.png"/>
+        </div>
+      </div>
+
+      <div class="box brown" >
+        <h1>Milk</h1>
+        <label id="milk-count">1</label>
+        <div class="circle">
+          <img src="milk.png"/>
+        </div>
+      </div>
+
+      <div class="box blue">
+        <h1>Soda</h1>
+        <label id="soda-count">1</label>
+        <div class="circle ">
+          <img src="soda.png"/>
+        </div>
+      </div>
+    </div>
+
+    <div class="row2-container">
+      <div class="box red">
+        <h1>🚨 Out of Stock 🚨</h1>
+        <ul class="oos-list" id="out-of-stock-list"></ul>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script type="module" src="script.js"></script>
+  </body>
+</html>
+.

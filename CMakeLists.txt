@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(FYP_Pang)
+project(fyp_pang)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
@@ -66,6 +66,7 @@ add_service_files(
   StartDetection.srv
   ArmHeadGripper.srv
   LatestDetection.srv
+  StartMonitoring.srv
 )
 
 ## Generate actions in the 'action' folder

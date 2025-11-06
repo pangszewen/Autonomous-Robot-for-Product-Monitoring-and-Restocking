@@ -11,8 +11,8 @@ from cv_bridge import CvBridge, CvBridgeError
 import cv2
 
 # Import your custom service message types
-from FYP_Pang.srv import ArmHeadGripper, ArmHeadGripperResponse
-from FYP_Pang.srv import StartDetection, StartDetectionRequest
+from fyp_pang.srv import ArmHeadGripper, ArmHeadGripperResponse
+from fyp_pang.srv import StartDetection, StartDetectionRequest
 
 
 class ArmManipulationService:

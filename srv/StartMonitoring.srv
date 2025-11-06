@@ -1,0 +1,5 @@
+#StartMonitoring.srv
+
+---
+string[] low_stock_name
+int32[] low_stock_count
