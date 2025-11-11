@@ -136,6 +136,7 @@ label{
 }
 
  .row2-container {
+        display: flex;
         justify-content: center;
         align-items: center;
     }

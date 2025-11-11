@@ -120,7 +120,7 @@ class Run:
             return None
         
     def restocking(self, product):
-        location = self.navigation('shelf')
+        location = self.navigation('storage')
 
         detection = self.detection('pickup', product, True)
         xmin = detection.xmin
@@ -140,7 +140,7 @@ class Run:
         self.text2audio(f"Picking up the {class_name}.")
         arm_target = self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name)
 
-        location = self.navigation('storage')
+        location = self.navigation('shelf')
 
         action3 = "Place"
         arm_target = self.arm_manipulation(action3, 0, 0, 0, 0, class_name)
@@ -182,13 +182,17 @@ class Run:
         self.assist_unload_to_table_and_confirm_new(class_name1)
         
     def monitoring_restocking(self):
+        #location = self.navigation('shelf')
+
         low_stock = self.monitoring()
-        low_stock_product = low_stock.low_stock_name
-        low_stock_count = low_stock.low_stock_count
         if low_stock:
+            low_stock_product = list(low_stock.low_stock_name)
+            low_stock_count = list(low_stock.low_stock_count)
+
             self.text2audio(f"The stock of {low_stock_product} is low.")
 
-            while not low_stock_product:
+            while low_stock_product:
+                print(low_stock_product)
                 product = low_stock_product.pop()
                 count = low_stock_count.pop()
                 if product in self.out_of_stock:
@@ -203,6 +207,7 @@ class Run:
             
             return True
         else:
+            # No low stock products
             return False
             
     """----------------------------------------------------------------------------------- """
@@ -218,6 +223,7 @@ if __name__=="__main__":
             status = grocery.monitoring_restocking()
 
         grocery.text2audio('There are no low stock products at the moment. I will return to home now.')
+        grocery.navigation('home')
                 
         rospy.spin()
     except rospy.ROSInterruptException:

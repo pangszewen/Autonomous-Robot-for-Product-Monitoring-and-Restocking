@@ -20,7 +20,7 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 # Initialize Firebase
-cred = credentials.Certificate("src\\serviceAccountKey.json")
+cred = credentials.Certificate("/home/mustar/catkin_ws/src/fyp_pang/src/serviceAccountKey.json.json")
 firebase_admin.initialize_app(cred, {
     'databaseURL': "https://product-monitoring-fe713-default-rtdb.asia-southeast1.firebasedatabase.app/"
 })
@@ -32,7 +32,7 @@ class GroceryDetection:
         
         # Load the trained YOLO model - using the same model as ObjectPickerGUI
         # self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/robot_mouse_control/scripts/9125.pt')
-        self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/RoboCup-Home/models/groceries.pt')
+        self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/fyp_pang/src/best.pt')
         self.bridge = CvBridge()
         image_topic = rospy.get_param('~image_topic', '/camera/color/image_raw')
         self.sub = rospy.Subscriber(image_topic, Image, self.image_callback, queue_size=1)
@@ -61,23 +61,23 @@ class GroceryDetection:
 
         # Real YOLO model class mappings - NEW MODEL
         self.OBJECT_NAMES = {
-            0: "biscuit",
+            0: "biscuits",
             1: "cereal",
-            2: "coffee",
-            3: "cola",
-            4: "cornae",
+            2: "chips",
+            3: "chocolate",
+            4: "coffee",
             5: "cup noodle",
-            6: "lay stax",
-            7: "milk",
-            8: "paprika",
-            9: "pocky",
-            10: "potae",
-            11: "pringles",
-            12: "water"
+            6: "jam",
+            7: "juice",
+            8: "milk",
+            9: "soda",
+            10: "tuna",
+            11: "water",
+            12: "yogurt"
         }
 
         self.LOW_STOCK_THRESHOLD = 2
-        self.EXISTING_CLASSES = ['water', 'milk', 'soda']
+        self.EXISTING_CLASSES = ['water', 'milk', 'soda', 'juice']
 
         # announcement control
         self.last_announced_detection = None
@@ -108,7 +108,9 @@ class GroceryDetection:
 
             if frame_copy is not None:
                 self.update_display_image(frame_copy)
-
+                #detections = self.detect_objects(frame_copy)
+                #self.update_product_firebase(detections)
+            
             rate.sleep()
     
     def update_display_image(self, frame):
@@ -263,77 +265,58 @@ class GroceryDetection:
         
         return announcement
     
-    def update_firebase(self, class_counts):
+    def update_product_firebase(self, detection):
         """
         Update product counts and low-stock information to Firebase.
         Automatically triggers a simulated restocking process for low-stock items.
         """
+        object_counts = {}
+        if detection:
+            for obj in detection:
+                obj_class = obj['class_name']
+                if obj_class in self.EXISTING_CLASSES:
+                    object_counts[obj_class] = object_counts.get(obj_class, 0) + 1
+        else:
+            object_counts = dict(map(lambda x: (x, 0), self.EXISTING_CLASSES))
         try:
             db_ref = db.reference("product_counts")
-            low_stock_ref = db.reference("low_stock")
-
-            low_stock_items = []
 
             # Update Firebase with current detected counts
-            for class_name, count in class_counts.items():
+            for class_name, count in object_counts.items():
                 db_ref.child(class_name).update({'count': count})
-
-                # Check for low stock condition
-                if count < self.LOW_STOCK_THRESHOLD:
-                    low_stock_ref.child(class_name).set({
-                        'count': count,
-                        'status': 'Restocking Triggered'
-                    })
-                    low_stock_items.append(class_name)
-
-            # Handle items not currently detected
-            for class_name in self.EXISTING_CLASSES:
-                if class_name not in class_counts:
-                    db_ref.child(class_name).update({'count': 0})
-                    low_stock_ref.child(class_name).set({
-                        'count': 0,
-                        'status': 'Restocking Triggered'
-                    })
-                    if class_name not in low_stock_items:
-                        low_stock_items.append(class_name)
-
-            # Trigger restocking action for low stock items
-            if low_stock_items:
-                for item in low_stock_items:
-                    print(f"[ALERT] Low stock detected: {item}")
-                    print(f"[ACTION] Restocking for {item} started...\n")
-
-                # Optionally log restock events in Firebase
-                restock_log_ref = db.reference("restock_log")
-                for item in low_stock_items:
-                    restock_log_ref.push({
-                        'product': item,
-                        'status': 'Restock Initiated'
-                    })
 
         except Exception as e:
             print(f"[Firebase Error] {e}")
     
     def handle_monitoring_request(self, req):
+        response = StartMonitoringResponse()
         detected_objects = self.detect_objects(self.latest_frame.copy())
+        self.update_product_firebase(detected_objects)
         rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
+        object_counts = {}
         if detected_objects:
             # Count how many times each object appears
-            object_counts = {}
             for obj in detected_objects:
-                object_counts[obj] = object_counts.get(obj, 0) + 1
+                obj_class = obj['class']
+                if obj_class in self.EXISTING_CLASSES:
+                    object_counts[obj_class] = object_counts.get(obj_class, 0) + 1
 
-            self.update_firebase(object_counts)
             # Create a dictionary for low-stock objects (below threshold)
             low_stock = {}
             for obj, count in object_counts.items():  # use .items() to get both key and value
                 if count < 3:  # threshold condition
                     low_stock[obj] = count  # store the object and its count
 
-            response = StartMonitoringResponse()
+            if low_stock:
+                response.low_stock_name = list(low_stock.keys())
+                response.low_stock_count = list(low_stock.values())
+            else:
+                return None
+        else:
+            low_stock = dict(map(lambda x: (x, 0), self.EXISTING_CLASSES))
             response.low_stock_name = list(low_stock.keys())
             response.low_stock_count = list(low_stock.values())
-
+            
         return response
 
     def handle_detection_request(self, req):
@@ -360,7 +343,7 @@ class GroceryDetection:
             detected_objects = self.detect_objects(self.latest_frame.copy())
             rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
 
-            ref_path = "/home/mustar/catkin_ws/src/RoboCup-Home/storing_groceries/src/detection/reference_object.png"
+            ref_path = "/home/mustar/catkin_ws/src/fyp_pang/src/detection/reference_object.png"
             message = ""
             if detected_objects:
                 if mode == 'pickup':
