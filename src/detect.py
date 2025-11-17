@@ -20,10 +20,11 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 # Initialize Firebase
-cred = credentials.Certificate("/home/mustar/catkin_ws/src/fyp_pang/src/serviceAccountKey.json.json")
+cred = credentials.Certificate("/home/mustar/catkin_ws/src/fyp_pang/src/serviceAccountKey.json")
 firebase_admin.initialize_app(cred, {
     'databaseURL': "https://product-monitoring-fe713-default-rtdb.asia-southeast1.firebasedatabase.app/"
 })
+
 
 class GroceryDetection:
     def __init__(self):
@@ -32,7 +33,7 @@ class GroceryDetection:
         
         # Load the trained YOLO model - using the same model as ObjectPickerGUI
         # self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/robot_mouse_control/scripts/9125.pt')
-        self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/fyp_pang/src/best.pt')
+        self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/fyp_pang/src/best_test.pt')
         self.bridge = CvBridge()
         image_topic = rospy.get_param('~image_topic', '/camera/color/image_raw')
         self.sub = rospy.Subscriber(image_topic, Image, self.image_callback, queue_size=1)
@@ -45,6 +46,8 @@ class GroceryDetection:
         self.display_image = None  # Initialize display image
         self.latest_frame = None
         self.lock = threading.Lock()
+        self.db_ref = db.reference('product_counts')
+
         
         # Object categories for storing groceries task - NEW MODEL
         self.OBJECT_CATEGORIES = {
@@ -56,10 +59,16 @@ class GroceryDetection:
         self.CATEGORY_LOCATIONS = {
             'drinks': 'level 1',                   # Middle shelf, left side
             'food': 'level 2',                   # Bottom shelf, middle (heavy items)
-            'snacks': 'level 3'                   # Top shelf, right side (light items)
         }
 
-        # Real YOLO model class mappings - NEW MODEL
+        # YOLO model class mappings
+        self.OBJECT_NAMES = {
+            0: "cup noodle",
+            1: "juice",
+            2: "milk",
+            3: "water",
+        }
+        '''
         self.OBJECT_NAMES = {
             0: "biscuits",
             1: "cereal",
@@ -75,9 +84,10 @@ class GroceryDetection:
             11: "water",
             12: "yogurt"
         }
+        '''
 
         self.LOW_STOCK_THRESHOLD = 2
-        self.EXISTING_CLASSES = ['water', 'milk', 'soda', 'juice']
+        self.EXISTING_CLASSES = ['water', 'milk', 'cup noodle', 'juice']
 
         # announcement control
         self.last_announced_detection = None
@@ -265,6 +275,7 @@ class GroceryDetection:
         
         return announcement
     
+    '''
     def update_product_firebase(self, detection):
         """
         Update product counts and low-stock information to Firebase.
@@ -284,22 +295,46 @@ class GroceryDetection:
             # Update Firebase with current detected counts
             for class_name, count in object_counts.items():
                 db_ref.child(class_name).update({'count': count})
-
+            print("Updated firebase")
         except Exception as e:
             print(f"[Firebase Error] {e}")
+    '''
+
+    def update_product_firebase(self, class_counts):
+        """Update the Firebase database with detection counts for all classes."""
+        try:
+            # Fetch all existing classes from Firebase
+            existing_data = self.db_ref.get()
+            existing_classes = existing_data.keys() if existing_data else []
+
+            # Update Firebase with detected classes
+            for class_name, count in class_counts.items():
+                self.db_ref.child(class_name).set({'count': count})
+
+            # Set missing classes (no longer detected) to 0
+            for class_name in existing_classes:
+                if class_name not in class_counts:
+                    self.db_ref.child(class_name).set({'count': 0})
+
+            rospy.loginfo(f"Updated Firebase with all detected classes: {class_counts}")
+        except Exception as e:
+            rospy.logerr(f"Failed to update Firebase: {e}")
     
     def handle_monitoring_request(self, req):
+        print("Start Monitoring Request Received")
         response = StartMonitoringResponse()
         detected_objects = self.detect_objects(self.latest_frame.copy())
-        self.update_product_firebase(detected_objects)
+        print("Passing to firebase")
+        
         rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
         object_counts = {}
         if detected_objects:
             # Count how many times each object appears
             for obj in detected_objects:
-                obj_class = obj['class']
+                obj_class = obj['class_name']
                 if obj_class in self.EXISTING_CLASSES:
                     object_counts[obj_class] = object_counts.get(obj_class, 0) + 1
+            self.update_product_firebase(object_counts)
 
             # Create a dictionary for low-stock objects (below threshold)
             low_stock = {}

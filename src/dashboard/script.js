@@ -6,7 +6,7 @@ import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.
 const firebaseConfig = {
   apiKey: "AIzaSyC4o-f1eJHyGBsRv8t2QmbixiktF076Kpo",
   authDomain: "product-monitoring-fe713.firebaseapp.com",
-  databaseURL: "https://product-monitoring-fe713-default-rtdb.asia-southeast1.firebasedatabase.app/",
+  databaseURL: "https://product-monitoring-fe713-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "product-monitoring-fe713",
   storageBucket: "product-monitoring-fe713.firebasestorage.app",
   messagingSenderId: "778054405641",

@@ -30,7 +30,6 @@ class Run:
         self.CATEGORY_LOCATIONS = {
             'drinks': 'level 1',                   # Middle shelf, left side
             'food': 'level 2',                   # Bottom shelf, middle (heavy items)
-            'snacks': 'level 3'                   # Top shelf, right side (light items)
         }
         
         # Voice recognition threading setup
