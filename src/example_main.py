@@ -217,7 +217,7 @@ if __name__=="__main__":
     try:
         grocery = Run()
         rospy.sleep(3)
-        grocery.text2audio('hello, I am going to check for low stock products')
+        grocery.text2audio('hello')
         status = grocery.monitoring_restocking()
         while status:
             status = grocery.monitoring_restocking()
