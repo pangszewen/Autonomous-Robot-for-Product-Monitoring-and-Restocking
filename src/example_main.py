@@ -18,7 +18,8 @@ class Run:
         self.monitoring_response_message = []
         self.target_transformation_response_message = []
 
-        self.low_stock = {}
+        self.low_stock_product = []
+        self.low_stock_count = []
         self.out_of_stock = []
         
         self.OBJECT_CATEGORIES = {
@@ -65,6 +66,7 @@ class Run:
     def navigation(self, target_location):
         rospy.wait_for_service('navigate')
         try:
+            print("in navigation service")
             get_location_service = rospy.ServiceProxy('navigate', Navigate)
             self.location_response = get_location_service(target_location)
             self.location_response_message = self.location_response.reach
@@ -87,7 +89,7 @@ class Run:
             print("Service call failed:", e)
 
     def monitoring(self):
-        rospy.wait_for_service('startDetect')
+        rospy.wait_for_service('startMonitoring')
         try:
             get_monitoring_service = rospy.ServiceProxy('startMonitoring', StartMonitoring)
             print("in monitoring service")
@@ -118,8 +120,10 @@ class Run:
             print("Arm manipulation service call failed:", e)
             return None
         
-    def restocking(self, product):
-        location = self.navigation('storage')
+    def restocking(self, product, status):
+        if status:
+            print("Navigating to storage")
+            location = self.navigation('storage')
 
         detection = self.detection('pickup', product, True)
         xmin = detection.xmin
@@ -139,11 +143,15 @@ class Run:
         self.text2audio(f"Picking up the {class_name}.")
         arm_target = self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name)
 
+        print("Navigating to shelf")
         location = self.navigation('shelf')
 
         action3 = "Place"
         arm_target = self.arm_manipulation(action3, 0, 0, 0, 0, class_name)
 
+        low_stock = self.monitoring()
+        self.low_stock_product = list(low_stock.low_stock_name)
+        self.low_stock_count = list(low_stock.low_stock_count)
         return True
 
     
@@ -181,28 +189,40 @@ class Run:
         self.assist_unload_to_table_and_confirm_new(class_name1)
         
     def monitoring_restocking(self):
-        #location = self.navigation('shelf')
+        print("Navigating to shelf for monitoring")
+        location = self.navigation('shelf')
 
         low_stock = self.monitoring()
         if low_stock:
-            low_stock_product = list(low_stock.low_stock_name)
-            low_stock_count = list(low_stock.low_stock_count)
+            self.low_stock_product = list(low_stock.low_stock_name)
+            self.low_stock_count = list(low_stock.low_stock_count)
 
-            self.text2audio(f"The stock of {low_stock_product} is low.")
+            combined = list(zip(self.low_stock_product, self.low_stock_count))
+            combined.sort(key=lambda x: x[1])  # x[1] = count
 
-            while low_stock_product:
-                print(low_stock_product)
-                product = low_stock_product.pop()
-                count = low_stock_count.pop()
+            self.low_stock_product, self.low_stock_count = map(list, zip(*combined))
+
+            self.text2audio(f"The stock of {self.low_stock_product} is low.")
+
+            status = True
+            while self.low_stock_product:
+                print(self.low_stock_product)
+                product = self.low_stock_product.pop(0)
+                count = self.low_stock_count.pop(0)
                 if product in self.out_of_stock:
                     continue
                 else:
                     while count < 3:
-                        status = self.restocking(product)
+                        print(f"Enter restocking loop with product {product}")
+                        status = self.restocking(product, status)
                         if status:
                             continue
                         else:
+                            print(f"Out of stock list: {self.out_of_stock}")
                             self.alert_notification(product)
+                            break
+                    if status:
+                        self.text2audio(f"The product {product} has been restocked.")
             
             return True
         else:
@@ -216,6 +236,7 @@ if __name__=="__main__":
     try:
         grocery = Run()
         rospy.sleep(3)
+        print("say hello")
         grocery.text2audio('hello')
         status = grocery.monitoring_restocking()
         while status:

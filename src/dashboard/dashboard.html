@@ -14,6 +14,14 @@
   <body>
     <div class="header">
       <h1>Product Inventory Dashboard</h1>
+      <button class="noti-button" onclick="toggleNotificationPanel()">
+            🔔
+      </button>
+    </div>
+
+    <div class="sidebar">
+      <h2>Notification History</h2>
+      <ul class="historyList"></ul>
     </div>
 
     <div class="row1-container">
@@ -27,7 +35,7 @@
 
       <div class="box brown" >
         <h1>Cup Noodle</h1>
-        <label id="cupnoodle-count">1</label>
+        <label id="cup_noodle-count">1</label>
         <div class="circle">
           <img src="cupnoodle.png"/>
         </div>

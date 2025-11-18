@@ -46,8 +46,8 @@ class GroceryDetection:
         self.display_image = None  # Initialize display image
         self.latest_frame = None
         self.lock = threading.Lock()
-        self.db_ref = db.reference('product_counts')
-
+        self.product_db_ref = db.reference('product_counts')
+        self.stock_db_ref = db.reference('stock_counts')
         
         # Object categories for storing groceries task - NEW MODEL
         self.OBJECT_CATEGORIES = {
@@ -275,48 +275,55 @@ class GroceryDetection:
         
         return announcement
     
-    '''
-    def update_product_firebase(self, detection):
+    def count_objects(self, detected_objects):
         """
-        Update product counts and low-stock information to Firebase.
-        Automatically triggers a simulated restocking process for low-stock items.
+        Count occurrences of each detected object class
+        Returns a dictionary with class names as keys and counts as values
         """
         object_counts = {}
-        if detection:
-            for obj in detection:
+        for obj in detected_objects:
                 obj_class = obj['class_name']
                 if obj_class in self.EXISTING_CLASSES:
                     object_counts[obj_class] = object_counts.get(obj_class, 0) + 1
-        else:
-            object_counts = dict(map(lambda x: (x, 0), self.EXISTING_CLASSES))
-        try:
-            db_ref = db.reference("product_counts")
-
-            # Update Firebase with current detected counts
-            for class_name, count in object_counts.items():
-                db_ref.child(class_name).update({'count': count})
-            print("Updated firebase")
-        except Exception as e:
-            print(f"[Firebase Error] {e}")
-    '''
-
-    def update_product_firebase(self, class_counts):
-        """Update the Firebase database with detection counts for all classes."""
+        return object_counts
+    
+    def update_stock_firebase(self, stock_counts):
+        """Update the Firebase database with detection counts for all stocks."""
         try:
             # Fetch all existing classes from Firebase
-            existing_data = self.db_ref.get()
+            existing_data = self.stock_db_ref.get()
             existing_classes = existing_data.keys() if existing_data else []
 
             # Update Firebase with detected classes
-            for class_name, count in class_counts.items():
-                self.db_ref.child(class_name).set({'count': count})
+            for class_name, count in stock_counts.items():
+                self.stock_db_ref.child(class_name).set({'count': count})
 
             # Set missing classes (no longer detected) to 0
             for class_name in existing_classes:
-                if class_name not in class_counts:
-                    self.db_ref.child(class_name).set({'count': 0})
+                if class_name not in stock_counts:
+                    self.stock_db_ref.child(class_name).set({'count': 0})
 
-            rospy.loginfo(f"Updated Firebase with all detected classes: {class_counts}")
+            rospy.loginfo(f"Updated Firebase with all detected stocks: {stock_counts}")
+        except Exception as e:
+            rospy.logerr(f"Failed to update Firebase: {e}")
+
+    def update_product_firebase(self, product_counts):
+        """Update the Firebase database with detection counts for all products."""
+        try:
+            # Fetch all existing classes from Firebase
+            existing_data = self.product_db_ref.get()
+            existing_classes = existing_data.keys() if existing_data else []
+
+            # Update Firebase with detected classes
+            for class_name, count in product_counts.items():
+                self.product_db_ref.child(class_name).set({'count': count})
+
+            # Set missing classes (no longer detected) to 0
+            for class_name in existing_classes:
+                if class_name not in product_counts:
+                    self.product_db_ref.child(class_name).set({'count': 0})
+
+            rospy.loginfo(f"Updated Firebase with all detected products: {product_counts}")
         except Exception as e:
             rospy.logerr(f"Failed to update Firebase: {e}")
     
@@ -327,13 +334,9 @@ class GroceryDetection:
         print("Passing to firebase")
         
         rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
-        object_counts = {}
         if detected_objects:
             # Count how many times each object appears
-            for obj in detected_objects:
-                obj_class = obj['class_name']
-                if obj_class in self.EXISTING_CLASSES:
-                    object_counts[obj_class] = object_counts.get(obj_class, 0) + 1
+            object_counts = self.count_objects(detected_objects)
             self.update_product_firebase(object_counts)
 
             # Create a dictionary for low-stock objects (below threshold)
@@ -382,9 +385,12 @@ class GroceryDetection:
             message = ""
             if detected_objects:
                 if mode == 'pickup':
+                    object_counts = self.count_objects(detected_objects)
+                    self.update_stock_firebase(object_counts)
                     
-                    if target_class in detected_objects:
-                        filtered = [obj for obj in detected_objects if obj['class'] == target_class]
+                    found = any(obj['class_name'] == target_class for obj in detected_objects)
+                    if found:
+                        filtered = [obj for obj in detected_objects if obj['class_name'] == target_class]
                         best_object = max(filtered, key=lambda obj: obj['confidence'])
                     else:
                         for i in range(3):
