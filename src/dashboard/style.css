@@ -64,22 +64,6 @@ h1:last-of-type {
     z-index: 9999;
   }
 
-  .sidebar.open {
-    right: 0;                /* Slide in */
-  }
-
-  .historyList {
-    padding-left: 20px;
-    list-style-type: disc;
-    font-size: 16px;
-  }
-
-  .noti-button {
-    padding: 10px 20px;
-    margin: 10px;
-  }
-
-
 .box p {
     color: var(--grayishBlue);
 }
@@ -254,4 +238,70 @@ label{
     opacity: 0;
     animation-name: fadeInUp;
     -webkit-animation-name: fadeInUp;
+}
+
+#notification-btn {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  font-size: 2rem;
+  cursor: pointer;
+  z-index: 9999;
+  background: white;
+  padding: 10px 15px;
+  border-radius: 50%;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+}
+
+/* Sidebar */
+#notification-sidebar {
+  position: fixed;
+  top: 0;
+  right: -400px;
+  width: 350px;
+  height: 100%;
+  background: #ffffff;
+  box-shadow: -3px 0 10px rgba(0,0,0,0.2);
+  transition: right 0.3s ease;
+  padding: 20px;
+  overflow-y: auto;
+  z-index: 9998;
+}
+
+#notification-sidebar.open {
+  right: 0;
+}
+
+#notification-sidebar h2 {
+  margin-top: 0;
+}
+
+#notification-history li {
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 1rem;
+}
+
+/* Toast Notification */
+#toast {
+  visibility: hidden;
+  min-width: 250px;
+  background: #333;
+  color: #fff;
+  padding: 14px;
+  border-radius: 5px;
+  text-align: center;
+  position: fixed;
+  left: 50%;
+  bottom: 100px;
+  transform: translateX(-50%);
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.5s, bottom 0.5s;
+}
+
+#toast.show {
+  visibility: visible;
+  opacity: 1;
+  bottom: 60px;
 }

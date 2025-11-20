@@ -1,6 +1,6 @@
 // Import Firebase SDK
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
+import { getDatabase, ref, onValue, get, push, set} from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -13,20 +13,71 @@ const firebaseConfig = {
   appId: "1:778054405641:web:f191cef429853b3b40b2d8",
   measurementId: "G-RE74HTTLKR"
 };
-
-let notifications = JSON.parse(localStorage.getItem('notifications') || '[]');
-let previousOutOfStock = new Set();
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
 
 // Initialize Firebase
 try {
-  const app = initializeApp(firebaseConfig);
-  const database = getDatabase(app);
-
   // Reference the database path
   const productCountRef = ref(database, "product_counts");
   const stockCountRef = ref(database, "stock_counts");
+  let previousOOS = [];
 
-  // Listen for Realtime Database Changes
+  get(stockCountRef)
+  .then(snapshot => {
+      if (snapshot.exists()) {
+          const data = snapshot.val();
+
+          // Extract out-of-stock items as strings
+          Object.entries(data).forEach(([item, obj]) => {
+            const count = obj.count || 0;
+            if (count === 0) {
+              previousOOS.push(item); // store just item names, not <li>
+            }
+          });
+
+          onValue(
+            stockCountRef, 
+            (snapshot) => {
+              try {
+                const val = snapshot.val();
+                if (!val) throw new Error("No stock count data.");
+
+                const outOfStockList = $("#out-of-stock-list");
+                outOfStockList.empty();
+
+                const currentOutOfStock = [];
+
+                Object.entries(val).forEach(([item, data]) => {
+                  const count = data.count || 0;
+                  if (count === 0) {
+                    outOfStockList.append(`<li>${item}</li>`);
+                    currentOutOfStock.push(item);
+                    
+                    // Check if this item is NEW (wasn't in previous set)
+                    if (!previousOOS.includes(item)) {
+                      const message = `${item} is OUT OF STOCK!`;
+                      showToast(message);
+                      playSound();
+                      saveNotification(message);
+                    }
+                  }
+                });
+
+              } catch (error) {
+                console.error("Error loading stock_counts: ", error);
+                displayErrorMessage("Error loading stock data.", error);
+              }
+              previousOOS = currentOutOfStock;
+          });
+      } else {
+          console.log("No data found in stock_counts.");
+      }
+  })
+  .catch(error => {
+      console.error("Error initializing previousOOS:", error);
+  });
+
   onValue(
     productCountRef, 
     (snapshot) => {
@@ -56,30 +107,6 @@ try {
     }
   });
 
-
-  onValue(
-    stockCountRef, 
-    (snapshot) => {
-      try {
-        const val = snapshot.val();
-        if (!val) throw new Error("No stock count data.");
-
-        const outOfStockList = $("#out-of-stock-list");
-        outOfStockList.empty();
-
-        Object.entries(val).forEach(([item, data]) => {
-          const count = data.count || 0;
-          if (count === 0) {
-            outOfStockList.append(`<li>${item}</li>`);
-          }
-        });
-      } catch (error) {
-        console.error("Error loading stock_counts: ", error);
-        displayErrorMessage("Error loading stock data.");
-      }
-      previousOutOfStock = outOfStockList;
-  });
-
   // Error Message Display Function
   function displayErrorMessage(message) {
     const errorBox = $("#error-box");
@@ -101,102 +128,78 @@ try {
   alert("Failed to initialize Firebase. Please check the configuration.");
 }
 
-function openSidebar() {
-  const sidebar = document.getElementById("sidebar");
-  const list = document.getElementById("historyList");
+function saveNotification(message) {
+    const notifRef = ref(database, "notifications");
+    // Create a new child with an auto-generated ID
+    const newNotifRef = push(notifRef);
+    const id = newNotifRef.key;
 
-  sidebar.classList.add("open");
-  list.innerHTML = ""; // clear list
+    // Store the notification
+    set(newNotifRef, {
+        id: id,
+        message: message,
+        created_at: Date.now(),
+        read: false
+    });
 
-  const history = JSON.parse(localStorage.getItem("notificationHistory")) || [];
-
-  history.forEach(item => {
-    const li = document.createElement("li");
-    li.textContent = `${item.time}: ${item.message}`;
-    list.appendChild(li);
-  });
+    console.log("Saved Notification with ID:", id);
 }
 
-/* 
-function addNotification(productName) {
-  const notification = {
-    id: Date.now(),
-    product: productName,
-    time: new Date().toLocaleString(),
-    read: false
-  };
+// Open/close sidebar & load history
+function toggleNotificationSidebar() {
+    const sidebar = document.getElementById("notification-sidebar");
+    const list = document.getElementById("notification-history");
 
-  notifications.unshift(notification);
-  localStorage.setItem('notifications', JSON.stringify(notifications));
-  updateNotificationUI();
-  showToast(productName);
+    // Toggle 'open' class
+    const isOpen = sidebar.classList.contains("open");
+    if (isOpen) {
+        sidebar.classList.remove("open"); // close
+        return; // no need to reload notifications
+    }
+
+    sidebar.classList.add("open"); // open
+    list.innerHTML = ""; // clear current UI
+
+    // Load notifications from Firebase
+    const notifRef = ref(database, "notifications");
+    onValue(notifRef, (snapshot) => {
+        list.innerHTML = ""; // clear UI
+
+        const data = snapshot.val();
+        if (!data) {
+            list.innerHTML = "<li>No notifications yet.</li>";
+            return;
+        }
+
+        // Convert Firebase object to array and sort newest first
+        const arr = Object.values(data).sort((a, b) => b.created_at - a.created_at);
+
+        arr.forEach(n => {
+            const li = document.createElement("li");
+            const date = new Date(n.created_at).toLocaleString();
+            li.textContent = `${date} — ${n.message}`;
+            list.appendChild(li);
+        });
+    });
 }
 
-function updateNotificationUI() {
-  const notificationList = document.getElementById('notification-list');
-  const badge = document.getElementById('notification-badge');
-            
-  const unreadCount = notifications.filter(n => !n.read).length;
-            
-  if (unreadCount > 0) {
-    badge.textContent = unreadCount;
-    badge.style.display = 'flex';
-  } else {
-    badge.style.display = 'none';
-  }
+// Toast notification
+function showToast(msg) {
+  const toast = document.getElementById("toast");
+  toast.textContent = msg;
+  toast.className = "show";
 
-  if (notifications.length === 0) {
-    notificationList.innerHTML = '<div class="empty-state">No notifications yet</div>';
-    return;
-  }
-
-  notificationList.innerHTML = notifications.map(notif => `
-    <div class="notification-item ${notif.read ? '' : 'unread'}">
-    <div class="notification-content">
-        <div class="notification-title">⚠️ ${notif.product} is out of stock</div>
-        <div class="notification-time">${notif.time}</div>
-      </div>
-    </div>
-  `).join('');
+  setTimeout(() => toast.className = toast.className.replace("show", ""), 3000);
 }
 
-function showToast(productName) {
-  const toast = document.getElementById('toast');
-  const toastMessage = document.getElementById('toast-message');
-            
-  toastMessage.textContent = `${productName} is now out of stock!`;
-  toast.classList.add('show');
-
-  setTimeout(() => {
-    toast.classList.remove('show');
-  }, 5000);
+// Play sound
+function playSound() {
+  document.getElementById("notif-sound").play();
 }
 
-window.closeToast = function() {
-  document.getElementById('toast').classList.remove('show');
-};
-
-window.toggleNotificationPanel = function() {
-  const panel = document.getElementById('notification-panel');
-  panel.classList.toggle('open');
-            
-  if (panel.classList.contains('open')) {
-    notifications.forEach(n => n.read = true);
-    localStorage.setItem('notifications', JSON.stringify(notifications));
-    updateNotificationUI();
-  }
-};
-
-window.clearAllNotifications = function() {
-  if (confirm('Are you sure you want to clear all notifications?')) {
-    notifications = [];
-    localStorage.setItem('notifications', JSON.stringify(notifications));
-    updateNotificationUI();
-  }
-};
-
-// Initialize notification UI
-updateNotificationUI();
-*/
+// Button click opens sidebar
+document.getElementById("notification-btn").addEventListener("click", () => {
+  toggleNotificationSidebar();
+});
 
   

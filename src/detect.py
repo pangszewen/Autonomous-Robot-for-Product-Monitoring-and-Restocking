@@ -287,6 +287,27 @@ class GroceryDetection:
                     object_counts[obj_class] = object_counts.get(obj_class, 0) + 1
         return object_counts
     
+    def find_object_position(self, target_class, detected_objects):
+        """
+        Find the position of the target class in the detected objects
+        Returns the bounding box coordinates if found, else None
+        """
+        found = any(obj['class_name'] == target_class for obj in detected_objects)
+        if found:
+            print("Found target class")
+            filtered = [obj for obj in detected_objects if obj['class_name'] == target_class]
+            best_object = max(filtered, key=lambda obj: obj['confidence'])
+            return best_object
+        else:
+            for i in range(3):
+                detected_objects = self.detect_objects(self.latest_frame.copy())
+                if target_class in detected_objects:
+                    filtered = [obj for obj in detected_objects if obj['class'] == target_class]
+                    best_object = max(filtered, key=lambda obj: obj['confidence'])
+                    break
+                if i == 2:
+                    return None
+    
     def update_stock_firebase(self, stock_counts):
         """Update the Firebase database with detection counts for all stocks."""
         try:
@@ -381,145 +402,61 @@ class GroceryDetection:
             detected_objects = self.detect_objects(self.latest_frame.copy())
             rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
 
-            ref_path = "/home/mustar/catkin_ws/src/fyp_pang/src/detection/reference_object.png"
             message = ""
             if detected_objects:
                 if mode == 'pickup':
                     object_counts = self.count_objects(detected_objects)
                     self.update_stock_firebase(object_counts)
                     
-                    found = any(obj['class_name'] == target_class for obj in detected_objects)
-                    if found:
-                        filtered = [obj for obj in detected_objects if obj['class_name'] == target_class]
-                        best_object = max(filtered, key=lambda obj: obj['confidence'])
+                    best_object = self.find_object_position(target_class, detected_objects)
+                    print("target class:" , target_class)
+                    print("best object:", best_object['class_name'])
+                    if best_object:
+                        response = StartDetectionResponse(
+                            xmin=best_object['x1'],
+                            xmax=best_object['x2'],
+                            ymin=best_object['y1'],
+                            ymax=best_object['y2'],
+                            class_name=best_object['class_name'],
+                            success=True,
+                            message=message
+                        )
                     else:
-                        for i in range(3):
-                            detected_objects = self.detect_objects(self.latest_frame.copy())
-                            if target_class in detected_objects:
-                                filtered = [obj for obj in detected_objects if obj['class'] == target_class]
-                                best_object = max(filtered, key=lambda obj: obj['confidence'])
-                                break
-                            if i == 2:
-                                return StartDetectionResponse(
-                                    xmin=0, xmax=0, ymin=0, ymax=0,
-                                    class_name="", success=False,
-                                    message=f"No objects of class {target_class} detected"
-                                )
+                        response = StartDetectionResponse(
+                            xmin=0, xmax=0, ymin=0, ymax=0,
+                            class_name="", success=False,
+                            message=f"No objects of class {target_class} detected"
+                        )
 
-                    # Crop the reference image
-                    cv_img = np.flip(self.cv_image, axis=1)
-                    ref_img = cv_img[
-                        int(best_object['y1']):int(best_object['y2']),
-                        int(best_object['x1']):int(best_object['x2'])
-                    ].copy()
-
-                    try:
-                        os.remove(ref_path)
-                        rospy.loginfo("Reference image file removed after placement")
-                    except Exception as e:
-                        rospy.logwarn(f"Could not delete reference image file: {e}")
-
-                    # Save reference image to file
-                    cv2.imwrite(ref_path, ref_img)
-                    rospy.loginfo(f"Reference image saved at {ref_path}")
-                                           
-                    response = StartDetectionResponse(
-                        xmin=best_object['x1'],
-                        xmax=best_object['x2'],
-                        ymin=best_object['y1'],
-                        ymax=best_object['y2'],
-                        class_name=best_object['class_name'],
-                        success=True,
-                        message=message
-                    )
                     rospy.loginfo(f"Detected object: {best_object['class_name']} with confidence {best_object['confidence']:.2f}")
                     return response
 
                 elif mode == 'place':
-                     # Load reference image from file
-                    if not os.path.exists(ref_path):
-                        rospy.logwarn("No reference image found for placement")
-                        return StartDetectionResponse(
-                            xmin=0, xmax=0, ymin=0, ymax=0,
-                            class_name="", success=False,
-                            message="No reference image available"
-                        )
 
-                    reference_img = cv2.imread(ref_path)
-                    
-                    if target_class == "":
-                        first_obj = detected_objects[0]
-                        return StartDetectionResponse(
-                            xmin=first_obj['x1'], xmax=first_obj['x2'], ymin=first_obj['y1'], ymax=first_obj['y2'],
-                            class_name=first_obj['class_name'], success=True,
-                            message="No matching objects, returned the first detected object"
+                    placement = self.find_object_position(target_class, detected_objects)    
+                    if placement:
+                        response = StartDetectionResponse(
+                            xmin=placement['x1'],
+                            xmax=placement['x2'],
+                            ymin=placement['y1'],
+                            ymax=placement['y2'],
+                            class_name=placement['class_name'],
+                            success=True,
+                            message=message
                         )
                     else:
-                        placement_response = self.find_similar_object(detected_objects, reference_img)                   
-                        return placement_response
+                        response = StartDetectionResponse(
+                            xmin=0, xmax=0, ymin=0, ymax=0,
+                            class_name="", success=False,
+                            message=f"No objects of class {target_class} detected"
+                        )
+                    rospy.loginfo(f"Detected placement: {placement['class_name']} with confidence {placement['confidence']:.2f}")
+                    return response
             else:
                 rospy.logwarn("No detected objects")
                 return StartDetectionResponse(0, 0, 0, 0, "", False, "No detected objects")
         except Exception as e:
             return StartDetectionResponse(0, 0, 0, 0, "", False, str(e))
-
-
-    def find_similar_object(self, detected_objects, reference_img):
-        print("Finding object with similarity check...")
-
-        # Helper: compare color histogram similarity
-        def histogram_similarity(img1, img2):
-            hist1 = cv2.calcHist([img1], [0, 1, 2], None, [8, 8, 8],
-                                [0, 256, 0, 256, 0, 256])
-            hist2 = cv2.calcHist([img2], [0, 1, 2], None, [8, 8, 8],
-                                [0, 256, 0, 256, 0, 256])
-            cv2.normalize(hist1, hist1)
-            cv2.normalize(hist2, hist2)
-            return cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)  # 0-1 range
-
-        # Get the most similar object to the reference image
-        best_match = None
-        best_score = -1
-        for obj in detected_objects:
-            # Crop detected object from current frame
-            crop = self.cv_image[int(obj['y1']):int(obj['y2']), int(obj['x1']):int(obj['x2'])]
-            if crop.size == 0:
-                continue
-            score = histogram_similarity(reference_img, crop)
-            print(f"Similarity with {obj['class_name']} at ({obj['x1']},{obj['y1']}): {score:.3f}")
-            if score > best_score:
-                best_score = score
-                best_match = obj
-
-        if not best_match:
-            print("No valid match after similarity check")
-            return StartDetectionResponse(
-                xmin=0, xmax=0, ymin=0, ymax=0,
-                class_name="",
-                success=False,
-                message="No similar object"
-            )
-        else:
-            # Determine left/center/right
-            img_width = self.cv_image.shape[1]
-            obj_center_x = (best_match['x1'] + best_match['x2']) / 2
-
-            if obj_center_x < 320-100:
-                position = "left"
-            elif obj_center_x > 320+100:
-                position = "right"
-            else:
-                position = "center"
-
-            self.speak(f"Similar object is on the {position} side of the shelf.")
-
-            return StartDetectionResponse(
-                xmin=best_match['x1'], xmax=best_match['x2'],
-                ymin=best_match['y1'], ymax=best_match['y2'],
-                class_name=best_match['class_name'],
-                success=True,
-                message="Similar object found"
-            )
 
     def speak(self, text):
         tts = gTTS(text=text, lang='en')

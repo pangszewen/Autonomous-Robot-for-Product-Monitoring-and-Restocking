@@ -14,15 +14,22 @@
   <body>
     <div class="header">
       <h1>Product Inventory Dashboard</h1>
-      <button class="noti-button" onclick="toggleNotificationPanel()">
-            🔔
-      </button>
     </div>
 
-    <div class="sidebar">
-      <h2>Notification History</h2>
-      <ul class="historyList"></ul>
+    <!-- Notification Button -->
+    <div id="notification-btn">🔔</div>
+
+    <!-- Right Sidebar -->
+    <div id="notification-sidebar">
+      <h2>Notifications</h2>
+      <ul id="notification-history"></ul>
     </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+
+    <!-- Notification sound -->
+    <audio id="notif-sound" src="notification.mp3" preload="auto"></audio>
 
     <div class="row1-container">
       <div class="box cyan">

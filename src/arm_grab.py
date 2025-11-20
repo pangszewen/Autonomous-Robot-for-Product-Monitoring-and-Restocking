@@ -119,7 +119,7 @@ class ArmManipulationService:
         # return success, message
 
         # Service server
-        self.service = rospy.Service('arm_manipulation', ArmHeadGripper, self.handle_arm_manipulation_new)
+        self.service = rospy.Service('arm_manipulation', ArmHeadGripper, self.handle_arm_manipulation)
         
         rospy.loginfo("Arm Manipulation Service initialized and ready")
         rospy.loginfo("Empty location detection enabled for placement operations")
@@ -138,7 +138,7 @@ class ArmManipulationService:
     def get_fresh_detection(self, mode, class_name):
         """
         Thread-safe call to detection service
-        """
+        """                                           
         if self.detection_client is None:
             rospy.logwarn("Detection service not available, attempting to reconnect...")
             self.setup_detection_client()
@@ -188,7 +188,7 @@ class ArmManipulationService:
             rospy.loginfo(f"Received arm manipulation request: mode={req.mode}, class={req.class_name}")
             
             if req.mode.lower() == "pick":
-                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name)
+                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 55)
                 # Get fresh detection for pickup
                 detection = self.get_fresh_detection("pickup", req.class_name)
                 if detection is None:
@@ -223,7 +223,6 @@ class ArmManipulationService:
                     rospy.logwarn("Could not find safe placement position, using default")
                     success = self.move_to_place_position()
                 
-                # FIX: Use req.class_name instead of undefined detection variable
                 object_name = req.class_name if req.class_name else "object"
                 message = f"I have placed down the {object_name} in the cabinet"
             
@@ -1036,7 +1035,7 @@ class ArmManipulationService:
 
         # Open the gripper to place down the object
         rospy.loginfo("Placing object down by opening the gripper.")
-        self.pub_gripper.publish(Float64(-0.5))  # Open gripper
+        self.pub_gripper.publish(Float64(-0.17))  # Open gripper
         rospy.sleep(1)
 
         # Return to the ready position after placing
