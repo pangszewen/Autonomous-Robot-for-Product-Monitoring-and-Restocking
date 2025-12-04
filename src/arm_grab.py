@@ -119,7 +119,7 @@ class ArmManipulationService:
         # return success, message
 
         # Service server
-        self.service = rospy.Service('arm_manipulation', ArmHeadGripper, self.handle_arm_manipulation)
+        self.service = rospy.Service('arm_manipulation', ArmHeadGripper, self.handle_arm_manipulation_new)
         
         rospy.loginfo("Arm Manipulation Service initialized and ready")
         rospy.loginfo("Empty location detection enabled for placement operations")
@@ -135,7 +135,7 @@ class ArmManipulationService:
             rospy.logerr(f"Failed to connect to detection service: {e}")
             self.detection_client = None
 
-    def get_fresh_detection(self, mode, class_name):
+    def get_fresh_detection(self, mode, class_name, update = False):
         """
         Thread-safe call to detection service
         """                                           
@@ -149,6 +149,7 @@ class ArmManipulationService:
             request = StartDetectionRequest()
             request.mode = mode
             request.class_name = class_name
+            request.startdetect = update
             
             rospy.loginfo(f"Requesting fresh detection: mode={mode}, class={class_name}")
             response = self.detection_client(request)
@@ -269,12 +270,35 @@ class ArmManipulationService:
             elif req.mode.lower() == "place":
                 self.move_forward(0)
                 detection = self.get_fresh_detection("place", req.class_name)
-                self.approach_object(
-                    detection['xmin'], detection['xmax'], 
-                    detection['ymin'], detection['ymax'], 
-                    detection['class_name'], 60)
-                success = True
-                message = "Success"
+                approached = self.approach_object(
+                                detection['xmin'], detection['xmax'], 
+                                detection['ymin'], detection['ymax'], 
+                                detection['class_name'], 50)
+    
+                if approached:
+                    center_clear = self.move_away_from_objects_to_center(req.class_name)
+        
+                    if center_clear:
+                        rospy.loginfo("Center area is clear for placement")
+                    else:
+                        # Fallback to rotation-based empty location search
+                        rospy.loginfo("Center clearing failed, trying rotation-based search...")
+                        self.find_and_rotate_to_empty_location(req.class_name)
+            
+                    rospy.loginfo("Safe position found, proceeding with placement")
+                    # If no coordinates are given, use default place position
+                    if req.xmin == 0 and req.xmax == 0 and req.ymin == 0 and req.ymax == 0:
+                        rospy.loginfo("Using default place position")
+                        success = self.move_to_place_position()
+                    else:
+                        rospy.loginfo(f"Placing at given coordinates")
+                        success = self.execute_place_sequence(req.xmin, req.xmax, req.ymin, req.ymax)
+                else:
+                    rospy.logwarn("Could not find safe placement position, using default")
+                    success = self.move_to_place_position()
+                
+                object_name = req.class_name if req.class_name else "object"
+                message = f"I have placed down the {object_name} in the cabinet"
 
             response.success = success
             response.message = message if success else "Operation failed"
@@ -344,6 +368,33 @@ class ArmManipulationService:
         rospy.loginfo(f"Reached approach distance {stop_distance:.2f} m from {class_name}")
         return True
 
+    def move_to_safe_placement_position(self, class_name):
+        """
+        Combined method to find a safe placement position by avoiding center objects
+        and optionally using the empty location search
+        """
+        rospy.loginfo("Finding safe placement position...")
+        detection = self.get_fresh_detection("place", class_name)
+        xmin = detection['xmin']
+        xmax = detection['xmax']
+        ymin = detection['ymin']
+        ymax = detection['ymax']
+        center_x = (xmin + xmax) / 2
+        center_y = (ymin + ymax) / 2
+        box_width = abs(xmax - xmin)
+        box_height = abs(ymax - ymin)
+        self.navigate_to_object_with_redetection("place", class_name, center_x, center_y, box_width, box_height)
+
+        # First try to clear the center area
+        center_clear = self.move_away_from_objects_to_center(class_name)
+        
+        if center_clear:
+            rospy.loginfo("Center area is clear for placement")
+            return True
+        else:
+            # Fallback to rotation-based empty location search
+            rospy.loginfo("Center clearing failed, trying rotation-based search...")
+            return self.find_and_rotate_to_empty_location(class_name)
 
     def find_and_rotate_to_empty_location(self, class_name):
         """
@@ -946,34 +997,6 @@ class ArmManipulationService:
 
         rospy.logwarn("Could not find safe center area after maximum attempts")
         return False
-
-    def move_to_safe_placement_position(self, class_name):
-        """
-        Combined method to find a safe placement position by avoiding center objects
-        and optionally using the empty location search
-        """
-        rospy.loginfo("Finding safe placement position...")
-        detection = self.get_fresh_detection("place", class_name)
-        xmin = detection['xmin']
-        xmax = detection['xmax']
-        ymin = detection['ymin']
-        ymax = detection['ymax']
-        center_x = (xmin + xmax) / 2
-        center_y = (ymin + ymax) / 2
-        box_width = abs(xmax - xmin)
-        box_height = abs(ymax - ymin)
-        self.navigate_to_object_with_redetection("place", class_name, center_x, center_y, box_width, box_height)
-
-        # First try to clear the center area
-        center_clear = self.move_away_from_objects_to_center(class_name)
-        
-        if center_clear:
-            rospy.loginfo("Center area is clear for placement")
-            return True
-        else:
-            # Fallback to rotation-based empty location search
-            rospy.loginfo("Center clearing failed, trying rotation-based search...")
-            return self.find_and_rotate_to_empty_location(class_name)
 
     def stop_robot(self):
         twist = Twist()

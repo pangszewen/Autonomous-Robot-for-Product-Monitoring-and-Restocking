@@ -33,7 +33,7 @@ class GroceryDetection:
         
         # Load the trained YOLO model - using the same model as ObjectPickerGUI
         # self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/robot_mouse_control/scripts/9125.pt')
-        self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/fyp_pang/src/best_test.pt')
+        self.model = ultralytics.YOLO('/home/mustar/catkin_ws/src/fyp_pang/src/best_test2.pt')
         self.bridge = CvBridge()
         image_topic = rospy.get_param('~image_topic', '/camera/color/image_raw')
         self.sub = rospy.Subscriber(image_topic, Image, self.image_callback, queue_size=1)
@@ -63,10 +63,11 @@ class GroceryDetection:
 
         # YOLO model class mappings
         self.OBJECT_NAMES = {
-            0: "cup noodle",
+            0: "chips",
             1: "juice",
             2: "milk",
             3: "water",
+            4: "yogurt"
         }
         '''
         self.OBJECT_NAMES = {
@@ -87,7 +88,7 @@ class GroceryDetection:
         '''
 
         self.LOW_STOCK_THRESHOLD = 2
-        self.EXISTING_CLASSES = ['water', 'milk', 'cup noodle', 'juice']
+        self.EXISTING_CLASSES = ['water', 'milk', 'chips', 'juice', 'yogurt']
 
         # announcement control
         self.last_announced_detection = None
@@ -381,6 +382,7 @@ class GroceryDetection:
     def handle_detection_request(self, req):
         mode = req.mode
         target_class = req.class_name
+        update = req.startdetect
 
         max_wait_time = 5.0
         wait_start = rospy.Time.now()
@@ -406,7 +408,8 @@ class GroceryDetection:
             if detected_objects:
                 if mode == 'pickup':
                     object_counts = self.count_objects(detected_objects)
-                    self.update_stock_firebase(object_counts)
+                    if update:
+                        self.update_stock_firebase(object_counts)
                     
                     best_object = self.find_object_position(target_class, detected_objects)
                     print("target class:" , target_class)

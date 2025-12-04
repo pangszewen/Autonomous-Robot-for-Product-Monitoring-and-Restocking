@@ -9,6 +9,14 @@ import time
 import speech_recognition as sr
 import threading
 import queue
+import firebase_admin
+from firebase_admin import credentials, db
+
+# Initialize Firebase
+cred = credentials.Certificate("/home/mustar/catkin_ws/src/fyp_pang/src/serviceAccountKey.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': "https://product-monitoring-fe713-default-rtdb.asia-southeast1.firebasedatabase.app/"
+})
 
 class Run:
     def __init__(self):
@@ -21,6 +29,7 @@ class Run:
         self.low_stock_product = []
         self.low_stock_count = []
         self.out_of_stock = []
+        self.stock_db_ref = db.reference('stock_counts')
         
         self.OBJECT_CATEGORIES = {
             'drinks': ['water', 'coffee', 'juice', 'milk', 'soda'],
@@ -60,6 +69,12 @@ class Run:
                 return self.CATEGORY_LOCATIONS[category]
         
         return None
+    
+    # TBC
+    def get_oos_list(self):
+        """Update the Firebase database with detection counts for all stocks."""
+
+
 
     """ Below are the service calls examples """
 
@@ -228,6 +243,9 @@ class Run:
         else:
             # No low stock products
             return False
+        
+    def test(self):
+        self.restocking('milk', True)
             
     """----------------------------------------------------------------------------------- """
 
