@@ -254,7 +254,8 @@ class Run:
                         print(f"Enter restocking loop with product {product}")
                         stock_status = self.restocking(product, stock_status)
                         if stock_status:
-                            self.monitoring
+                            # Have stock
+                            self.monitoring()
                             if product in self.low_stock_product:
                                 index = self.low_stock_product.index(product)
                                 count = self.low_stock_count[index]
@@ -262,12 +263,17 @@ class Run:
                             else:
                                 break
                         else:
+                            # Out of stock
                             print(f"Out of stock list: {self.out_of_stock}")
                             self.alert_notification(product)
                             break
                     if stock_status:
+                        index = self.low_stock_product.index(product)
+                        self.low_stock_product.remove(product)
+                        self.low_stock_count.pop(index)
                         self.text2audio(f"The product {product} has been restocked.")
-                
+                # Refresh out of stock list after each product restocking attempt 
+                self.out_of_stock = self.get_oos_list()
             return True
         else:
             # No low stock products

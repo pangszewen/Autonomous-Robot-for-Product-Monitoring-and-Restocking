@@ -11,6 +11,7 @@ from collections import Counter
 from sensor_msgs.msg import Image
 # from test_grocery.msg import Boundingbox
 from std_msgs.msg import String
+from fyp_pang.msg import Boundingbox
 from enum import Enum
 from cv_bridge import CvBridge, CvBridgeError
 from fyp_pang.srv import StartDetection, StartDetectionResponse, LatestDetection, LatestDetectionResponse, StartMonitoring, StartMonitoringResponse
@@ -379,6 +380,23 @@ class GroceryDetection:
             
         return response
 
+    def get_all_detections(self, detected_objects):
+        response = StartDetectionResponse(
+            xmin=0, xmax=0, ymin=0, ymax=0,
+            class_name="", success=True,
+            message=f"Returning all detected objects"
+        )
+        for obj in detected_objects:
+            msg_obj = Boundingbox()
+            msg_obj.xmin = obj['x1']
+            msg_obj.ymin = obj['y1']
+            msg_obj.xmax = obj['x2']
+            msg_obj.ymax = obj['y2']
+            msg_obj.class_name = obj['class_name']
+                    
+            response.objects.append(msg_obj)
+        return response
+    
     def handle_detection_request(self, req):
         mode = req.mode
         target_class = req.class_name
@@ -391,7 +409,7 @@ class GroceryDetection:
             rospy.sleep(0.1)
 
         if self.latest_frame is None:
-            return StartDetectionResponse(0, 0, 0, 0, "", False, "No camera image available")
+            return StartDetectionResponse(0, 0, 0, 0, "", False, "No camera image available", None)
 
         try:
             if mode == 'place':
@@ -403,6 +421,10 @@ class GroceryDetection:
 
             detected_objects = self.detect_objects(self.latest_frame.copy())
             rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
+            
+            if mode == 'all':
+                response = self.get_all_detections(detected_objects)     
+                return response
 
             message = ""
             if detected_objects:
@@ -422,13 +444,15 @@ class GroceryDetection:
                             ymax=best_object['y2'],
                             class_name=best_object['class_name'],
                             success=True,
-                            message=message
+                            message=message,
+                            objects = None
                         )
                     else:
                         response = StartDetectionResponse(
                             xmin=0, xmax=0, ymin=0, ymax=0,
                             class_name="", success=False,
-                            message=f"No objects of class {target_class} detected"
+                            message=f"No objects of class {target_class} detected",
+                            objects = None
                         )
 
                     rospy.loginfo(f"Detected object: {best_object['class_name']} with confidence {best_object['confidence']:.2f}")
@@ -445,15 +469,16 @@ class GroceryDetection:
                             ymax=placement['y2'],
                             class_name=placement['class_name'],
                             success=True,
-                            message=message
+                            message=message,
+                            objects = None
                         )
                     else:
                         response = StartDetectionResponse(
                             xmin=0, xmax=0, ymin=0, ymax=0,
                             class_name="", success=False,
-                            message=f"No objects of class {target_class} detected"
+                            message=f"No objects of class {target_class} detected",
+                            objects = None
                         )
-                    rospy.loginfo(f"Detected placement: {placement['class_name']} with confidence {placement['confidence']:.2f}")
                     return response
             else:
                 rospy.logwarn("No detected objects")

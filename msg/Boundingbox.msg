@@ -1,4 +1,4 @@
-# BoundingBox.msg
+# Boundingbox.msg
 float64 xmin
 float64 xmax
 float64 ymin

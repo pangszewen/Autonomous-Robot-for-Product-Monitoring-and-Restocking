@@ -10,3 +10,4 @@ float64 ymax
 string class_name
 bool success
 string message
+Boundingbox[] objects

@@ -13,6 +13,7 @@ import cv2
 # Import your custom service message types
 from fyp_pang.srv import ArmHeadGripper, ArmHeadGripperResponse
 from fyp_pang.srv import StartDetection, StartDetectionRequest
+from fyp_pang.srv import StartMonitoring, StartMonitoringRequest
 
 
 class ArmManipulationService:
@@ -162,7 +163,8 @@ class ArmManipulationService:
                     'ymax': response.ymax,
                     'class_name': response.class_name,
                     'success': True,
-                    'message': response.message
+                    'message': response.message,
+                    'objects': response.objects
                 }
                 rospy.loginfo(f"Fresh detection successful: {response.class_name} at ({response.xmin}, {response.ymin}, {response.xmax}, {response.ymax})")
                 
@@ -393,8 +395,10 @@ class ArmManipulationService:
             return True
         else:
             # Fallback to rotation-based empty location search
-            rospy.loginfo("Center clearing failed, trying rotation-based search...")
-            return self.find_and_rotate_to_empty_location(class_name)
+            #rospy.loginfo("Center clearing failed, trying rotation-based search...")
+            #return self.find_and_rotate_to_empty_location(class_name)
+            rospy.loginfo("Center clearing failed")
+            return False
 
     def find_and_rotate_to_empty_location(self, class_name):
         """
@@ -738,7 +742,7 @@ class ArmManipulationService:
             
             if is_centered and is_reachable:
                 rospy.loginfo("Object perfectly positioned!")
-                self.move_forward(2)
+                self.move_forward(3)
                 return True
             
             if not is_centered:
@@ -916,7 +920,39 @@ class ArmManipulationService:
             return theta2 is not None and theta3 is not None and theta4 is not None
         except Exception:
             return False
-    
+
+    def boxes_overlap(self, a, b):
+        print("Calculating overlap")
+        return not (a["xmax"] < b["xmin"] or   # A is left of B
+                    a["xmin"] > b["xmax"] or   # A is right of B
+                    a["ymax"] < b["ymin"] or   # A is above B
+                    a["ymin"] > b["ymax"])  
+
+    def check_center_region_clear(self, center_box):
+        print("Checking center region for obstacles")
+        
+        detections = self.get_fresh_detection("all", "")  # service returns Boundingbox[]
+
+        if detections is None:
+            rospy.loginfo("No detections — center is empty")
+            return True
+
+        for obj in detections['objects']:
+            # Convert Boundingbox.msg -> dict-like box
+            obj_box = {
+                'xmin': obj.xmin,
+                'ymin': obj.ymin,
+                'xmax': obj.xmax,
+                'ymax': obj.ymax
+            }
+
+            if self.boxes_overlap(center_box, obj_box):
+                rospy.loginfo("Center region is blocked by an object.")
+                return False
+
+        rospy.loginfo("Center region is empty — safe to place")
+        return True
+        
     # Movement methods
     def move_to_center_object(self, center_x):
         frame_width = self.frame.shape[1] if self.frame is not None else 640
@@ -946,8 +982,15 @@ class ArmManipulationService:
         frame_height = self.frame.shape[0] if self.frame is not None else 480
         camera_center_x = frame_width / 2
         camera_center_y = frame_height / 2
-
         center_region_width = 80  # pixels
+        center_region_height = 80  # pixels
+        center_box = {
+            "xmin": int(camera_center_x - center_region_width/2),
+            "xmax": int(camera_center_x + center_region_width/2),
+            "ymin": int(camera_center_y - center_region_height/2),
+            "ymax": int(camera_center_y + center_region_height/2)
+        }
+
         max_attempts = 20
         redetection_interval = 3
         attempt = 0
@@ -956,10 +999,11 @@ class ArmManipulationService:
 
         while attempt < max_attempts:
             attempt += 1
+            direction = "left" if attempt >=10 else "right"
 
             # Re-detect every few steps
             if attempt == 1 or attempt % redetection_interval == 0:
-                rospy.loginfo("Re-detecting object during avoidance...")
+                rospy.loginfo(f"Re-detecting object ({class_name}) during avoidance...")
                 detection = self.get_fresh_detection("place", class_name)
 
             if detection is None:
@@ -980,12 +1024,10 @@ class ArmManipulationService:
 
             rotation_speed = min(abs(error) / 150.0, 1.5) * self.rotation_step + 0.5
 
-            if error > 0:
+            if error > 0 and direction == "left":
                 twist.angular.z = rotation_speed
                 rospy.loginfo("Rotating left to avoid object on right")
             else:
-                twist.angular.z = -rotation_speed
-                twist.angular.z = -rotation_speed
                 twist.angular.z = -rotation_speed
                 rospy.loginfo("Rotating right to avoid object on left")
 
@@ -996,7 +1038,11 @@ class ArmManipulationService:
 
             if distance_from_center > center_region_width / 2:
                 rospy.loginfo(f"Object at x={det_center_x:.1f} is far enough from center — safe to place")
-                return True
+                if self.check_center_region_clear(center_box):
+                    return True
+                else:
+                    rospy.loginfo("Center region still blocked")
+                    continue
 
         rospy.logwarn("Could not find safe center area after maximum attempts")
         return False
@@ -1071,7 +1117,7 @@ class ArmManipulationService:
     def align_gripper_with_object(self, obj_center_x):
         CAMERA_CENTER_X = 320
         MAX_ANGLE = 1.0
-        LEFT_OFFSET = 0.30
+        LEFT_OFFSET = 0.25
         
         # Calculate the error: positive means object is to the right, negative means left
         error = CAMERA_CENTER_X - obj_center_x
@@ -1084,7 +1130,7 @@ class ArmManipulationService:
             angle_to_object += LEFT_OFFSET
             print("Adjusting angle for left offset compensation:", angle_to_object)
 
-        angle_to_object += 0.1
+        angle_to_object += 0.05
         print("Angle to object:", angle_to_object)
         
         rospy.loginfo(f"Object at x={obj_center_x:.1f}, center={CAMERA_CENTER_X}, error={error:.1f}, angle={angle_to_object:.2f}")

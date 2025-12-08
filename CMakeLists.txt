@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   moveit_commander
   moveit_msgs
   std_srvs
+  message_generation
 )
 
 ## System dependencies are found with CMake's conventions
@@ -115,10 +116,7 @@ generate_messages(
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES FYP_Pang
-#  CATKIN_DEPENDS other_catkin_pkg
-#  DEPENDS system_lib
+  CATKIN_DEPENDS message_runtime std_msgs geometry_msgs
 )
 
 ###########
