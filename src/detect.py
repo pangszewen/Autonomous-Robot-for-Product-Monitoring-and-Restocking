@@ -395,7 +395,7 @@ class GroceryDetection:
 
         try:
             if mode == 'place':
-                self.GRIPPER_REGION = (274, 388, 372, 478) 
+                self.GRIPPER_REGION = (256, 450, 357, 472)
             else:
                 # ADD THIS ELSE CLAUSE FOR PICKUP MODE
                 rospy.loginfo("Clearing gripper region for pickup mode")

@@ -189,7 +189,7 @@ class ArmManipulationService:
             rospy.loginfo(f"Received arm manipulation request: mode={req.mode}, class={req.class_name}")
             
             if req.mode.lower() == "pick":
-                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 55)
+                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 58)
                 # Get fresh detection for pickup
                 detection = self.get_fresh_detection("pickup", req.class_name)
                 if detection is None:
@@ -252,7 +252,7 @@ class ArmManipulationService:
             rospy.loginfo(f"Received arm manipulation request: mode={req.mode}, class={req.class_name}")
             
             if req.mode.lower() == "pick":
-                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 58)
+                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 60)
                 # Get fresh detection for pickup
                 detection = self.get_fresh_detection("pickup", req.class_name)
                 if detection is None:
@@ -738,6 +738,7 @@ class ArmManipulationService:
             
             if is_centered and is_reachable:
                 rospy.loginfo("Object perfectly positioned!")
+                self.move_forward(2)
                 return True
             
             if not is_centered:
@@ -971,10 +972,6 @@ class ArmManipulationService:
 
             distance_from_center = abs(det_center_x - camera_center_x)
 
-            if distance_from_center > center_region_width / 2:
-                rospy.loginfo(f"Object at x={det_center_x:.1f} is far enough from center — safe to place")
-                return True
-
             # Too close — move away
             rospy.loginfo(f"Object too close to center at x={det_center_x:.1f}, moving away...")
 
@@ -988,12 +985,18 @@ class ArmManipulationService:
                 rospy.loginfo("Rotating left to avoid object on right")
             else:
                 twist.angular.z = -rotation_speed
+                twist.angular.z = -rotation_speed
+                twist.angular.z = -rotation_speed
                 rospy.loginfo("Rotating right to avoid object on left")
 
             self.pub_base.publish(twist)
             rospy.sleep(self.step_duration * 2)
             self.stop_robot()
             rospy.sleep(0.1)
+
+            if distance_from_center > center_region_width / 2:
+                rospy.loginfo(f"Object at x={det_center_x:.1f} is far enough from center — safe to place")
+                return True
 
         rospy.logwarn("Could not find safe center area after maximum attempts")
         return False
@@ -1064,11 +1067,11 @@ class ArmManipulationService:
         # Return to the ready position after placing
         self.move_to_ready_position()
         return True
-
+    
     def align_gripper_with_object(self, obj_center_x):
         CAMERA_CENTER_X = 320
         MAX_ANGLE = 1.0
-        LEFT_OFFSET = 0.25
+        LEFT_OFFSET = 0.30
         
         # Calculate the error: positive means object is to the right, negative means left
         error = CAMERA_CENTER_X - obj_center_x
@@ -1080,7 +1083,8 @@ class ArmManipulationService:
         if angle_to_object > 0.1:  # Object is to the left, gripper needs to turn left
             angle_to_object += LEFT_OFFSET
             print("Adjusting angle for left offset compensation:", angle_to_object)
-        
+
+        angle_to_object += 0.1
         print("Angle to object:", angle_to_object)
         
         rospy.loginfo(f"Object at x={obj_center_x:.1f}, center={CAMERA_CENTER_X}, error={error:.1f}, angle={angle_to_object:.2f}")
@@ -1128,7 +1132,7 @@ class ArmManipulationService:
         rospy.sleep(5)
         
         # Close gripper
-        self.pub_gripper.publish(Float64(1.0))
+        self.pub_gripper.publish(Float64(0.7))
         rospy.sleep(1)
         
         # Return to ready position
