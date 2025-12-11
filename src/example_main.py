@@ -173,13 +173,15 @@ class Run:
         success = detection.success
         print(xmin, xmax, ymin, ymax)
 
+        
         if success == False:
-            if product not in self.out_of_stock:
-                self.out_of_stock.append(product)
+            #if product not in self.out_of_stock:
+                #self.out_of_stock.append(product)
             return False
-        else:
-            if product in self.out_of_stock:
-                self.out_of_stock.remove(product)
+        #else:
+            #if product in self.out_of_stock:
+                #self.out_of_stock.remove(product)
+        
 
         action2 = "Pick"
         self.text2audio(f"Picking up the {class_name}.")
@@ -228,7 +230,7 @@ class Run:
         self.assist_unload_to_table_and_confirm_new(class_name1)
         
     def monitoring_restocking(self):
-        self.out_of_stock = self.get_oos_list()
+        #self.out_of_stock = self.get_oos_list()
            
         low_stock = self.monitoring()
         if low_stock:
@@ -245,9 +247,12 @@ class Run:
             stock_status = True
             while self.low_stock_product:
                 print(self.low_stock_product)
-                product = self.low_stock_product.pop()
-                count = self.low_stock_count.pop()
+                product = self.low_stock_product[0]
+                count = self.low_stock_count[0]
                 if product in self.out_of_stock:
+                    index = self.low_stock_product.index(product)
+                    self.low_stock_product.pop(index)
+                    self.low_stock_count.pop(index)
                     continue
                 else:
                     while count < 3:
@@ -268,9 +273,6 @@ class Run:
                             self.alert_notification(product)
                             break
                     if stock_status:
-                        index = self.low_stock_product.index(product)
-                        self.low_stock_product.remove(product)
-                        self.low_stock_count.pop(index)
                         self.text2audio(f"The product {product} has been restocked.")
                 # Refresh out of stock list after each product restocking attempt 
                 self.out_of_stock = self.get_oos_list()
@@ -280,7 +282,7 @@ class Run:
             return False
         
     def test(self):
-        self.restocking('milk', True)
+        self.restocking('juice', True)
             
     """----------------------------------------------------------------------------------- """
 

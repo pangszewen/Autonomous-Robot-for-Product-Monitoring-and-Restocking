@@ -423,8 +423,15 @@ class GroceryDetection:
             rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
             
             if mode == 'all':
-                response = self.get_all_detections(detected_objects)     
-                return response
+                if target_class == "":     
+                    response = self.get_all_detections(detected_objects)
+                    return response
+                else:
+                    print("Filtering for target class in all mode")
+                    filtered = [obj for obj in detected_objects if obj['class_name'] == target_class]
+                    response = self.get_all_detections(filtered)
+                    return response
+
 
             message = ""
             if detected_objects:
@@ -482,9 +489,9 @@ class GroceryDetection:
                     return response
             else:
                 rospy.logwarn("No detected objects")
-                return StartDetectionResponse(0, 0, 0, 0, "", False, "No detected objects")
+                return StartDetectionResponse(0, 0, 0, 0, "", False, "No detected objects", None)
         except Exception as e:
-            return StartDetectionResponse(0, 0, 0, 0, "", False, str(e))
+            return StartDetectionResponse(0, 0, 0, 0, "", False, str(e), None)
 
     def speak(self, text):
         tts = gTTS(text=text, lang='en')

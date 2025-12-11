@@ -6,14 +6,12 @@ import numpy as np
 import threading
 from std_msgs.msg import Float64
 from sensor_msgs.msg import Image, LaserScan
-from geometry_msgs.msg import Twist, geometry_msgs
+from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge, CvBridgeError
-import cv2
 
 # Import your custom service message types
 from fyp_pang.srv import ArmHeadGripper, ArmHeadGripperResponse
 from fyp_pang.srv import StartDetection, StartDetectionRequest
-from fyp_pang.srv import StartMonitoring, StartMonitoringRequest
 
 
 class ArmManipulationService:
@@ -340,7 +338,7 @@ class ArmManipulationService:
         forward_speed = 0.15  # m/s
 
         twist = Twist()
-
+        target_center = (center_x, center_y)
         # Keep moving until close enough
         while distance > stop_distance:
             # Rotate to align
@@ -351,15 +349,16 @@ class ArmManipulationService:
             rospy.sleep(0.1)
 
             # Update detection & depth
-            obj = self.get_fresh_detection("pickup", class_name)
+            obj = self.get_closest_detection(class_name, target_center)
             if not obj:
                 rospy.logwarn("Lost sight of object during approach.")
                 break
 
-            center_x = (obj['xmin'] + obj['xmax']) / 2
-            center_y = (obj['ymin'] + obj['ymax']) / 2
-            box_width = abs(obj['xmax'] - obj['xmin'])
-            box_height = abs(obj['ymax'] - obj['ymin'])
+            center_x = (obj.xmin + obj.xmax) / 2
+            center_y = (obj.ymin + obj.ymax) / 2
+            box_width = abs(obj.xmax - obj.xmin)
+            box_height = abs(obj.ymax - obj.ymin)
+            target_center = (center_x, center_y)
             print("New center: ", center_x, center_y)
             distance = self.get_robust_depth(center_x, center_y, box_width, box_height)
             error_x = center_x - image_center_x
@@ -369,6 +368,40 @@ class ArmManipulationService:
         self.pub_base.publish(Twist())
         rospy.loginfo(f"Reached approach distance {stop_distance:.2f} m from {class_name}")
         return True
+    
+    def get_closest_detection(self, class_name, last_position, max_distance=100):
+        """
+        Get the detection of class_name closest to last_position.
+        
+        Args:
+            class_name: Object class to detect
+            last_position: Tuple (x, y) of last known center
+            max_distance: Maximum pixel distance to consider (prevents jumping to far objects)
+        
+        Returns:
+            Dictionary with detection info or None
+        """
+        detections = self.get_fresh_detection("all", class_name)
+        
+        if not detections['success']:
+            return None
+        
+        last_x, last_y = last_position
+        closest_obj = None
+        min_distance = float('inf')
+
+        for obj in detections['objects']:
+            obj_center_x = (obj.xmin + obj.xmax) / 2
+            obj_center_y = (obj.ymin + obj.ymax) / 2
+            
+            # Calculate Euclidean distance
+            dist = ((obj_center_x - last_x)**2 + (obj_center_y - last_y)**2)**0.5
+            
+            if dist < min_distance and dist < max_distance:
+                min_distance = dist
+                closest_obj = obj
+        
+        return closest_obj
 
     def move_to_safe_placement_position(self, class_name):
         """
@@ -1069,18 +1102,23 @@ class ArmManipulationService:
     def calculate_inverse_kinematics(self, x, z, alpha_deg):
         print("x: ", x, "z: ", z)
         alpha = math.radians(alpha_deg)
+        # End effector position 
         m = z - self.L4 * math.cos(alpha)
         n = x - self.L4 * math.sin(alpha)
 
-        if math.sqrt(m**2 + n**2) > (self.L2 + self.L3 + self.L4 + 200):
+        # Reachability check
+        if math.sqrt(m**2 + n**2) > (self.L2 + self.L3 + self.L4):
             return None, None, None
 
+        # Elbow angle
         cos_theta3 = (m**2 + n**2 - self.L2**2 - self.L3**2) / (2 * self.L2 * self.L3)
         cos_theta3 = max(min(cos_theta3, 1.0), -1.0)
         theta3 = math.acos(cos_theta3)
+        # Shoulder angle
         theta12 = math.atan2(n, m)
         beta = math.atan2(self.L3 * math.sin(theta3), self.L2 + self.L3 * math.cos(theta3))
         theta2 = theta12 - beta
+        # Wrist angle
         theta4 = alpha - (theta2 + theta3)
         return math.degrees(theta2), math.degrees(theta3), math.degrees(theta4)
 
@@ -1118,6 +1156,7 @@ class ArmManipulationService:
         CAMERA_CENTER_X = 320
         MAX_ANGLE = 1.0
         LEFT_OFFSET = 0.25
+        RIGHT_OFFSET = -0.19
         
         # Calculate the error: positive means object is to the right, negative means left
         error = CAMERA_CENTER_X - obj_center_x
@@ -1129,6 +1168,9 @@ class ArmManipulationService:
         if angle_to_object > 0.1:  # Object is to the left, gripper needs to turn left
             angle_to_object += LEFT_OFFSET
             print("Adjusting angle for left offset compensation:", angle_to_object)
+        elif angle_to_object < -0.1:  # Object is to the right, gripper needs to turn right
+            angle_to_object += RIGHT_OFFSET
+            print("Adjusting angle for right offset compensation:", angle_to_object)
 
         angle_to_object += 0.05
         print("Angle to object:", angle_to_object)
