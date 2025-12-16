@@ -31,15 +31,14 @@ class Run:
         self.low_stock_count = []
         self.out_of_stock = []
         
-        
         self.OBJECT_CATEGORIES = {
             'drinks': ['water', 'coffee', 'juice', 'milk', 'soda'],
             'food': ['tuna', 'cup noodle', 'cereal', 'jam', 'yogurt', 'biscuits', 'chips', 'chocolate']
         }
 
         self.CATEGORY_LOCATIONS = {
-            'drinks': 'level 1',                   # Middle shelf, left side
-            'food': 'level 2',                   # Bottom shelf, middle (heavy items)
+            'drinks': 'level 1',                   
+            'food': 'level 2',                   
         }
 
         self.OBJECT_LOCATIONS = {
@@ -48,11 +47,6 @@ class Run:
             'chips': 'left',
             'yogurt': 'right',
         }
-        
-        # Voice recognition threading setup
-        self.voice_queue = queue.Queue()
-        self.listening = False
-        self.voice_thread = None
 
     def text2audio(self, text):
         tts = gTTS(text)
@@ -61,15 +55,10 @@ class Run:
         os.remove("main_audio.mp3")
     
     def alert_notification(self, product):
-        # add update firebase data here
         alert_message = f"Alert: The product {product} is out of stock. Please restock it as soon as possible."
         self.text2audio(alert_message)
     
     def get_object_location(self, class_name):
-        """
-        Get the location of the object based on its class name.
-        Returns a dictionary with coordinates.
-        """
         for category, items in self.OBJECT_CATEGORIES.items():
             if class_name in items:
                 rospy.loginfo(f"Object {class_name} belongs to category {category}")
@@ -96,8 +85,8 @@ class Run:
     def navigation(self, target_location):
         rospy.wait_for_service('navigate')
         try:
-            print("in navigation service")
             get_location_service = rospy.ServiceProxy('navigate', Navigate)
+            print("in navigation service")
             self.location_response = get_location_service(target_location)
             self.location_response_message = self.location_response.reach
             
@@ -134,24 +123,14 @@ class Run:
                 return True
             else:
                 return False
-        
         except rospy.ServiceException as e:
             print("Service call failed:", e)
-
     
     def arm_manipulation(self, mode, xmin, ymin, xmax, ymax, class_name):
-        """
-        Call the new arm manipulation service
-        
-        Args:
-            mode: "pick" or "place"
-            xmin, ymin, xmax, ymax: bounding box coordinates
-            class_name: object class name
-        """
         rospy.wait_for_service('arm_manipulation')
-        print("in arm service")
         try:
             get_arm_service = rospy.ServiceProxy('arm_manipulation', ArmHeadGripper)
+            print("in arm service")
             response = get_arm_service(mode, xmin, ymin, xmax, ymax, class_name)
             print(f"Arm manipulation response: {response}")
             return response
@@ -163,79 +142,45 @@ class Run:
         if status:
             print("Navigating to storage")
             location = self.navigation('storage')
-
-        detection = self.detection('pickup', product, True)
-        xmin = detection.xmin
-        xmax = detection.xmax
-        ymin = detection.ymin
-        ymax = detection.ymax
-        class_name = detection.class_name 
-        success = detection.success
-        print(xmin, xmax, ymin, ymax)
-
         
-        if success == False:
-            #if product not in self.out_of_stock:
-                #self.out_of_stock.append(product)
-            return False
-        #else:
-            #if product in self.out_of_stock:
-                #self.out_of_stock.remove(product)
-        
+        pick_status = False
+        while not pick_status:
+            detection = self.detection('pickup', product, True)
+            xmin = detection.xmin
+            xmax = detection.xmax
+            ymin = detection.ymin
+            ymax = detection.ymax
+            class_name = detection.class_name 
+            success = detection.success
+            message = detection.message
+            print(xmin, xmax, ymin, ymax)
+            print(message)
 
-        action2 = "Pick"
-        self.text2audio(f"Picking up the {class_name}.")
-        arm_target = self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name)
+            if not success:
+                return False
+
+            action2 = "Pick"
+            self.text2audio(f"Picking up the {class_name}.")
+            pick_status = self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name)
+            if not pick_status:
+                location = self.navigation('storage')
+        
 
         print("Navigating to shelf")
         location = self.navigation('shelf')
 
         action3 = "Place"
-        arm_target = self.arm_manipulation(action3, 0, 0, 0, 0, class_name)
+        place_status = False
+        while not place_status:
+            place_status = self.arm_manipulation(action3, 0, 0, 0, 0, class_name)
         
         return True
-
-    
-    def storing_groceries_new(self):
-        #loaction1 = self.navigation('dining_table')
-
-        loaction1 = None
-        while not loaction1:
-            loaction1 = self.detection('pickup', '', True)
-            self.text2audio(loaction1.message)
-
-            # Extract values from the response
-            xmin = loaction1.xmin
-            xmax = loaction1.xmax
-            ymin = loaction1.ymin
-            ymax = loaction1.ymax
-            class_name1 = loaction1.class_name 
-            success = loaction1.success
-            print(xmin, xmax, ymin, ymax)
-            if not loaction1.class_name:
-                loaction1 = None
-                continue
-            action2 = "Pick"
-            self.text2audio(f"Picking up the {class_name1}.")
-            arm_target = self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name1)
-            self.assist_load_onto_robot_new(class_name1)
-
-            
-
-        shelf = self.get_object_location(class_name1)
-        loaction2 = self.navigation(shelf)
-
-        action3 = "Place"
-        arm_target = self.arm_manipulation(action3, 0, 0, 0, 0, class_name1)
-        self.assist_unload_to_table_and_confirm_new(class_name1)
         
     def monitoring_restocking(self):
-        #self.out_of_stock = self.get_oos_list()
-           
         low_stock = self.monitoring()
         if low_stock:
             combined = list(zip(self.low_stock_product, self.low_stock_count))
-            combined.sort(key=lambda x: x[1])  # x[1] = count
+            combined.sort(key=lambda x: x[1])
 
             self.low_stock_product, self.low_stock_count = map(list, zip(*combined))
 
@@ -291,14 +236,13 @@ if __name__=="__main__":
     try:
         grocery = Run()
         rospy.sleep(3)
-        print("say hello")
-        grocery.text2audio('hello')
+        grocery.text2audio('hello, I am a product monitoring and restocking robot.')
         #grocery.test()
         status = grocery.monitoring_restocking()
         while status:
             status = grocery.monitoring_restocking()
 
-        grocery.text2audio('There are no low stock products at the moment. I will return to home now.')
+        grocery.text2audio('I have finished restocking. I will return to home now.')
         grocery.navigation('home')
                 
         rospy.spin()

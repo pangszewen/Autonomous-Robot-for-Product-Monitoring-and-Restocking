@@ -50,19 +50,6 @@ h1:last-of-type {
     color: var(--grayishBlue);
 }
 
-.sidebar {
-    position: fixed;
-    right: -300px;           /* Hidden by default */
-    top: 0;
-    width: 300px;
-    height: 100%;
-    background: #f9f9f9;
-    box-shadow: -2px 0 8px rgba(0,0,0,0.2);
-    transition: right 0.3s ease;
-    padding: 20px;
-    overflow-y: auto;
-    z-index: 9999;
-  }
 
 .box p {
     color: var(--grayishBlue);
@@ -159,16 +146,8 @@ label{
 @media (min-width: 950px) {
     .row1-container {
         display: flex;
-        flex-wrap: wrap; /* allows items to wrap to the next line */
         justify-content: center;
         align-items: center;
-        gap: 20px; /* optional: space between boxes */
-    }
-
-    .row1-container .box {
-        flex: 0 1 calc(33.33% - 20px); /* 3 boxes per row minus gap */
-        box-sizing: border-box;
-        height: auto; /* adjust if needed */
     }
     
    
@@ -301,7 +280,7 @@ label{
   text-align: center;
   position: fixed;
   left: 50%;
-  bottom: 100px;
+  bottom: 40px;
   transform: translateX(-50%);
   z-index: 9999;
   opacity: 0;

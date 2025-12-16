@@ -64,11 +64,13 @@ try {
                   }
                 });
 
+                // ✅ MOVED INSIDE: Update previousOOS after processing
+                previousOOS = [...currentOutOfStock];
+
               } catch (error) {
                 console.error("Error loading stock_counts: ", error);
                 displayErrorMessage("Error loading stock data.", error);
               }
-              previousOOS = currentOutOfStock;
           });
       } else {
           console.log("No data found in stock_counts.");
@@ -201,5 +203,13 @@ function playSound() {
 document.getElementById("notification-btn").addEventListener("click", () => {
   toggleNotificationSidebar();
 });
+
+document.body.addEventListener("click", () => {
+  const sound = document.getElementById("notif-sound");
+  sound.play().then(() => {
+    sound.pause();
+    sound.currentTime = 0;
+  });
+}, { once: true });
 
   
