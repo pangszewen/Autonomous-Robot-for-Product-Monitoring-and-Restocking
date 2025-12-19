@@ -44,6 +44,7 @@ class ArmManipulation:
             "ymin": 450,
             "ymax": 472
         }
+        self.gripper_angle = 0.3
         
         # Navigation parameters
         self.center_threshold = 150
@@ -66,6 +67,16 @@ class ArmManipulation:
         self.rotation_step_for_search = 15  # degrees per search step
         self.preferred_placement_distance = 80.0  # cm preferred distance for placement
 
+        self.OBJECT_CATEGORIES = {
+            'drinks': ['water', 'coffee', 'juice', 'milk', 'soda'],
+            'food': ['tuna', 'cup noodle', 'cereal', 'jam', 'yogurt', 'biscuits', 'chips', 'chocolate']
+        }
+
+        self.CATEGORY_LOCATIONS = {
+            'drinks': 'level 1',                   
+            'food': 'level 2',                   
+        }
+
         # Detection service client
         self.detection_client = None
         self.setup_detection_client()
@@ -87,7 +98,7 @@ class ArmManipulation:
 
     def get_fresh_detection(self, mode, class_name, update = False):                                       
         if self.detection_client is None:
-            rospy.logwarn("Detection service not available, attempting to reconnect...")
+            rospy.logerr("Detection service not available, attempting to reconnect...")
             self.setup_detection_client()
             if self.detection_client is None:
                 return None
@@ -119,7 +130,7 @@ class ArmManipulation:
 
                 return detection_result
             else:
-                rospy.logwarn(f"Detection failed: {response.message}")
+                rospy.logerr(f"Detection failed: {response.message}")
                 return None
                 
         except rospy.ServiceException as e:
@@ -129,7 +140,6 @@ class ArmManipulation:
     def handle_arm_manipulation(self, req):
         """
         Service handler for arm manipulation requests
-        Now uses fresh detection data instead of relying on passed coordinates
         """
         response = ArmHeadGripperResponse()
         message = None
@@ -137,6 +147,7 @@ class ArmManipulation:
             rospy.loginfo(f"Received arm manipulation request: mode={req.mode}, class={req.class_name}")
             
             if req.mode.lower() == "pick":
+                self.set_gripper_joint(req.class_name)
                 self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 62)
                 # Get fresh detection for pickup
                 detection = self.get_fresh_detection("pickup", req.class_name)
@@ -159,35 +170,43 @@ class ArmManipulation:
                 
             elif req.mode.lower() == "place":
                 self.move_forward(0)
+                object_location = self.get_object_location(req.class_name)
                 detection = self.get_fresh_detection("place", req.class_name)
-                approached = self.approach_object(
+                if object_location == "level 2":
+                    approached = self.approach_object(
+                                detection['xmin'], detection['xmax'], 
+                                detection['ymin'], detection['ymax'], 
+                                detection['class_name'], 70)
+                else:
+                    approached = self.approach_object(
                                 detection['xmin'], detection['xmax'], 
                                 detection['ymin'], detection['ymax'], 
                                 detection['class_name'], 50)
     
                 if approached:
-                    center_clear = self.move_away_from_objects_to_center(req.class_name)
+                    center_clear = self.move_away_from_objects_to_center(req.class_name, object_location)
         
                     if center_clear:
                         rospy.loginfo("Center area is clear for placement")
                         # If no coordinates are given, use default place position
-                        if req.xmin == 0 and req.xmax == 0 and req.ymin == 0 and req.ymax == 0:
+                        if object_location == "level 2":
                             rospy.loginfo("Using default place position")
-                            success = self.move_to_place_position()
+                            success = self.move_to_level2_place_position()
                         else:
                             rospy.loginfo(f"Placing at given coordinates")
-                            success = self.execute_place_sequence(req.xmin, req.xmax, req.ymin, req.ymax)
+                            success = self.move_to_default_place_position()
+                        
                         self.move_forward(-5)
                         object_name = req.class_name if req.class_name else "object"
                         message = f"I have placed down the {object_name} in the cabinet"
                     else:
                         # Fallback to rotation-based empty location search
-                        rospy.loginfo("Center clearing failed, trying rotation-based search...")
+                        rospy.logerr("Center clearing failed")
                         success = False
                         message = "Could not find safe placement position"
 
                 else:
-                    rospy.logwarn("Could not find safe placement position, using default")
+                    rospy.logerr("Could not find safe placement position, using default")
                     success = False
                     message = "Could not find safe placement position"
 
@@ -201,12 +220,36 @@ class ArmManipulation:
         
         return response
     
+    def get_object_location(self, class_name):
+        # Find which category this object belongs to
+        category = None
+        for cat, items in self.OBJECT_CATEGORIES.items():
+            if class_name in items:
+                category = cat
+                break
+        
+        # If category found, get its location
+        if category:
+            location = self.CATEGORY_LOCATIONS.get(category)
+            return location
+        else:
+            rospy.logwarn(f"Object '{class_name}' not found in any category")
+            return None
+    
+    def set_gripper_joint(self, class_name):
+        if class_name in ['juice', 'milk', 'yogurt']:
+            self.gripper_angle = 0.3  # Open wider for drinks
+        elif class_name == 'chips':
+            self.gripper_angle = 0  # Medium grip for chips
+        else:
+            self.gripper_angle = 0.3  # Default grip for other items
+
     def approach_object(self, xmin, xmax, ymin, ymax, class_name, stop_distance):
         """
         Move the robot in front of the detected object based on its coordinates.
         stop_distance: distance in meters to stop before object
         """
-        print(f"Approaching {class_name}")
+        print(f"Approaching {class_name} until {stop_distance} m away")
         # Get object's bounding box center
         center_x = (xmin + xmax) / 2
         center_y = (ymin + ymax) / 2
@@ -216,17 +259,15 @@ class ArmManipulation:
         # Get distance from depth camera
         distance = self.get_robust_depth(center_x, center_y, box_width, box_height)
         if distance is None:
-            rospy.logwarn("No depth data available for approach.")
+            rospy.logerr("No depth data available for approach.")
             return False
-
-        rospy.loginfo(f"Object {class_name} at distance: {distance:.2f} m")
 
         # Rotate to center object in view
         image_center_x = self.depth_frame.shape[1] / 2
         error_x = center_x - image_center_x
 
         angular_speed = -0.002 * error_x 
-        forward_speed = 0.15  # m/s
+        forward_speed = 0.5  # m/s
 
         twist = Twist()
         target_center = (center_x, center_y)
@@ -237,14 +278,13 @@ class ArmManipulation:
             twist.linear.x = forward_speed if abs(error_x) < 20 else 0  # move only if roughly centered
             self.pub_base.publish(twist)
 
-            rospy.sleep(0.1)
+            rospy.sleep(0.2)
 
             # Update detection & depth
             obj = self.get_closest_detection(class_name, target_center)
             if not obj:
                 rospy.logwarn("Lost sight of object during approach.")
                 obj = self.get_fresh_detection('place', class_name)
-                continue
             
             center_x = (obj.xmin + obj.xmax) / 2
             center_y = (obj.ymin + obj.ymax) / 2
@@ -255,6 +295,8 @@ class ArmManipulation:
             distance = self.get_robust_depth(center_x, center_y, box_width, box_height)
             error_x = center_x - image_center_x
             angular_speed = -0.002 * error_x
+            forward_speed = 0.15
+            rospy.loginfo(f"Object {class_name} at distance: {distance:.2f} m")
 
             if not distance:
                 return False
@@ -331,6 +373,7 @@ class ArmManipulation:
         # Transform coordinates and execute grab
         robot_x, robot_y, robot_z = self.transform_to_robot_frame_depth(distance, final_center_x, final_center_y)
         success = self.pickup_object(robot_x, robot_z, 90)
+        self.move_forward(-5)
         
         rospy.loginfo(f"Pick sequence {'completed successfully' if success else 'failed'}")
         return success
@@ -402,16 +445,8 @@ class ArmManipulation:
         return False
 
     def depth_callback(self, msg):
-        """Improved depth callback with better error handling and debugging"""
         try:            
-            if msg.encoding == "16UC1":
-                self.depth_frame = self.bridge.imgmsg_to_cv2(msg, "16UC1")
-            elif msg.encoding == "32FC1":
-                self.depth_frame = self.bridge.imgmsg_to_cv2(msg, "32FC1")
-            else:
-                rospy.logwarn(f"Unknown depth encoding: {msg.encoding}, trying passthrough")
-                self.depth_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-            
+            self.depth_frame = self.bridge.imgmsg_to_cv2(msg, "16UC1")
         except CvBridgeError as e:
             rospy.logerr(f"Depth image conversion failed: {e}")
             self.depth_frame = None
@@ -422,7 +457,6 @@ class ArmManipulation:
             return None
         
         height, width = self.depth_frame.shape
-        
         # Ensure coordinates are within bounds
         x = int(max(0, min(x, width - 1)))
         y = int(max(0, min(y, height - 1)))
@@ -430,28 +464,13 @@ class ArmManipulation:
         try:
             depth_value = self.depth_frame[y, x]
             
-            if self.depth_frame.dtype == np.uint16:
-                if depth_value == 0:
-                    rospy.logdebug(f"Zero depth at pixel ({x},{y})")
-                    return None
-                # Convert from millimeters to centimeters
-                converted_depth = depth_value / 10.0
-                rospy.logdebug(f"Converted depth (uint16): {converted_depth} cm")
-                return converted_depth
-                
-            elif self.depth_frame.dtype == np.float32:
-                if np.isnan(depth_value) or depth_value == 0:
-                    rospy.logdebug(f"Invalid float32 depth at pixel ({x},{y}): {depth_value}")
-                    return None
-                # Convert from meters to centimeters
-                converted_depth = depth_value * 100.0
-                rospy.logdebug(f"Converted depth (float32): {converted_depth} cm")
-                return converted_depth
-                
-            else:
-                rospy.logwarn(f"Unsupported depth frame dtype: {self.depth_frame.dtype}")
+            if np.isnan(depth_value) or depth_value == 0:
+                rospy.logwarn(f"Invalid depth at pixel ({x},{y})")
                 return None
-                
+            # Convert from millimeters to centimeters
+            converted_depth = depth_value / 10.0
+            return converted_depth
+                 
         except Exception as e:
             rospy.logerr(f"Error getting depth at pixel ({x},{y}): {e}")
             return None
@@ -593,7 +612,7 @@ class ArmManipulation:
         self.stop_robot()
         rospy.sleep(0.02)
     
-    def move_away_from_objects_to_center(self, class_name):
+    def move_away_from_objects_to_center(self, class_name, level):
         """
         Move robot to avoid objects in the center area for safe placement.
         Re-detects object every few attempts to ensure accuracy.
@@ -611,6 +630,9 @@ class ArmManipulation:
             "ymin": int(camera_center_y - center_region_height/4),
             "ymax": int(camera_center_y + center_region_height/4)
         }
+        if level == "level 2":   
+            center_box["ymin"] -= 80
+            center_box["ymax"] -= 80
         center_x = (center_box["xmin"] + center_box["xmax"]) / 2
         center_y = (center_box["ymin"] + center_box["ymax"]) / 2
         box_width = center_box["xmax"] - center_box["xmin"]
@@ -692,7 +714,7 @@ class ArmManipulation:
                     else:
                         print ("Object is behind placement area, safe to place")
                         if placement_distance > 48:
-                            forward = placement_distance - 48
+                            forward = placement_distance - 50
                             self.move_forward(forward)
                         else:
                             self.move_forward(2)
@@ -765,11 +787,29 @@ class ArmManipulation:
         self.pub_arm3.publish(Float64(2))
         rospy.sleep(1)
         self.pub_arm4.publish(Float64(1.09956))
-        self.pub_gripper.publish(Float64(0.3))
+        self.pub_gripper.publish(Float64(self.gripper_angle))
         rospy.sleep(5)
         self.pub_arm1.publish(Float64(0))
 
-    def move_to_place_position(self):
+    def move_to_level2_place_position(self):
+        """Moves the arm to the place-down position."""
+        rospy.loginfo("Moving the arm to the place-down position.")
+        self.pub_arm1.publish(Float64(-19))
+        self.pub_arm2.publish(Float64(math.radians(63)))
+        self.pub_arm3.publish(Float64(math.radians(0.00)))
+        self.pub_arm4.publish(Float64(math.radians(-4)))
+
+        rospy.sleep(5)
+        self.pub_gripper.publish(Float64(0.1))
+        self.pub_gripper.publish(Float64(-0.2))
+        self.pub_gripper.publish(Float64(-0.3))  # Open gripper
+        rospy.sleep(1)
+
+        # Return to the ready position after placing
+        self.move_to_ready_position()
+        return True
+    
+    def move_to_default_place_position(self):
         """Moves the arm to the place-down position."""
         rospy.loginfo("Moving the arm to the place-down position.")
         self.pub_arm1.publish(Float64(0))
@@ -858,7 +898,7 @@ class ArmManipulation:
         rospy.sleep(5)
         
         # Close gripper
-        self.pub_gripper.publish(Float64(0.25))
+        self.pub_gripper.publish(Float64(self.gripper_angle))
         rospy.sleep(1)
         
         # Return to ready position
@@ -883,7 +923,9 @@ class ArmManipulation:
         rospy.sleep(3)
         
         # Open gripper to place object
-        self.pub_gripper.publish(Float64(-0.3))
+        self.pub_gripper.publish(Float64(0.1))
+        self.pub_gripper.publish(Float64(-0.2))
+        self.pub_gripper.publish(Float64(-0.3)) 
         rospy.sleep(1)
         
         # Return to ready position

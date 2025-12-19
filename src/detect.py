@@ -71,7 +71,6 @@ class GroceryDetection:
             12: "yogurt"
         }
         '''
-
         self.LOW_STOCK_THRESHOLD = 2
         self.CONFIDENCE_THRESHOLD = 0.7  
         self.EXISTING_CLASSES = ['milk', 'chips', 'juice', 'yogurt']
@@ -168,7 +167,7 @@ class GroceryDetection:
                     filtered = [obj for obj in detected_objects if obj['class_name'] == target_class]
                     best_object = max(filtered, key=lambda obj: obj['confidence'])
                     return best_object
-        return detected_objects[0]
+        return None
     
     def update_stock_firebase(self, stock_counts):
         try:
@@ -209,32 +208,28 @@ class GroceryDetection:
             rospy.logerr(f"Failed to update Firebase: {e}")
     
     def handle_monitoring_request(self, req):
-        print("Start Monitoring Request Received")
+        print("Monitoring Request Received")
         response = StartMonitoringResponse()
         detected_objects = self.detect_objects(self.latest_frame.copy())
-        print("Passing to firebase")
-        
         rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
-        if detected_objects:
-            # Count how many times each object appears
-            object_counts = self.count_objects(detected_objects)
-            self.update_product_firebase(object_counts)
-
-            # Create a dictionary for low-stock objects 
-            low_stock = {}
-            for obj, count in object_counts.items(): 
-                if count < 3:
-                    low_stock[obj] = count  
-
-            if low_stock:
-                response.low_stock_name = list(low_stock.keys())
-                response.low_stock_count = list(low_stock.values())
-            else:
-                return None
-        else:
-            low_stock = dict(map(lambda x: (x, 0), self.EXISTING_CLASSES))
+        
+        # Count detected objects
+        object_counts = self.count_objects(detected_objects) if detected_objects else {}
+        # Add zero counts for any classes not detected
+        for cls in self.EXISTING_CLASSES:
+            if cls not in object_counts:
+                object_counts[cls] = 0
+        
+        self.update_product_firebase(object_counts)
+        
+        # Create a dictionary for low-stock objects (count < 3)
+        low_stock = {obj: count for obj, count in object_counts.items() if count < 3}
+        if low_stock:
             response.low_stock_name = list(low_stock.keys())
             response.low_stock_count = list(low_stock.values())
+        else:
+            response.low_stock_name = []
+            response.low_stock_count = []
             
         return response
 

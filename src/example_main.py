@@ -141,7 +141,7 @@ class Run:
     def restocking(self, product, status):
         if status:
             print("Navigating to storage")
-            location = self.navigation('storage')
+            #location = self.navigation('storage')
         
         pick_status = False
         while not pick_status:
@@ -227,7 +227,8 @@ class Run:
             return False
         
     def test(self):
-        self.restocking('juice', True)
+        #self.restocking('chips', True)
+        place_status = self.arm_manipulation("place", 0, 0, 0, 0, "chips")
             
     """----------------------------------------------------------------------------------- """
 
@@ -237,13 +238,13 @@ if __name__=="__main__":
         grocery = Run()
         rospy.sleep(3)
         grocery.text2audio('hello, I am a product monitoring and restocking robot.')
-        #grocery.test()
-        status = grocery.monitoring_restocking()
-        while status:
-            status = grocery.monitoring_restocking()
+        grocery.test()
+        #status = grocery.monitoring_restocking()
+        #while status:
+            #status = grocery.monitoring_restocking()
 
-        grocery.text2audio('I have finished restocking. I will return to home now.')
-        grocery.navigation('home')
+        #grocery.text2audio('I have finished restocking. I will return to home now.')
+        #grocery.navigation('home')
                 
         rospy.spin()
     except rospy.ROSInterruptException:
