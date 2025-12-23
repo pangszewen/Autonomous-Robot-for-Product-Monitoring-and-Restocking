@@ -176,27 +176,28 @@ class ArmManipulation:
                     approached = self.approach_object(
                                 detection['xmin'], detection['xmax'], 
                                 detection['ymin'], detection['ymax'], 
-                                detection['class_name'], 70)
+                                detection['class_name'], 75)
                 else:
                     approached = self.approach_object(
                                 detection['xmin'], detection['xmax'], 
                                 detection['ymin'], detection['ymax'], 
-                                detection['class_name'], 50)
+                                detection['class_name'], 52)
     
                 if approached:
-                    center_clear = self.move_away_from_objects_to_center(req.class_name, object_location)
+                    center_clear, forward = self.move_away_from_objects_to_center(req.class_name, object_location)
+                    if forward is None:
+                        forward = 0
         
                     if center_clear:
                         rospy.loginfo("Center area is clear for placement")
                         # If no coordinates are given, use default place position
                         if object_location == "level 2":
                             rospy.loginfo("Using default place position")
-                            success = self.move_to_level2_place_position()
+                            success = self.move_to_level2_place_position(forward)
                         else:
                             rospy.loginfo(f"Placing at given coordinates")
-                            success = self.move_to_default_place_position()
+                            success = self.move_to_default_place_position(forward)
                         
-                        self.move_forward(-5)
                         object_name = req.class_name if req.class_name else "object"
                         message = f"I have placed down the {object_name} in the cabinet"
                     else:
@@ -237,8 +238,10 @@ class ArmManipulation:
             return None
     
     def set_gripper_joint(self, class_name):
-        if class_name in ['juice', 'milk', 'yogurt']:
+        if class_name in ['juice', 'yogurt']:
             self.gripper_angle = 0.3  # Open wider for drinks
+        elif class_name == 'milk':
+            self.gripper_angle = 0.4  # Tighter grip for milk
         elif class_name == 'chips':
             self.gripper_angle = 0  # Medium grip for chips
         else:
@@ -284,7 +287,7 @@ class ArmManipulation:
             obj = self.get_closest_detection(class_name, target_center)
             if not obj:
                 rospy.logwarn("Lost sight of object during approach.")
-                obj = self.get_fresh_detection('place', class_name)
+                continue
             
             center_x = (obj.xmin + obj.xmax) / 2
             center_y = (obj.ymin + obj.ymax) / 2
@@ -306,7 +309,7 @@ class ArmManipulation:
         rospy.loginfo(f"Reached approach distance {stop_distance:.2f} m from {class_name}")
         return True
     
-    def get_closest_detection(self, class_name, last_position, max_distance=100):
+    def get_closest_detection(self, class_name, last_position, max_distance=1000):
         """
         Get the detection of class_name closest to last_position.
         """
@@ -624,15 +627,20 @@ class ArmManipulation:
         camera_center_y = frame_height / 2
         center_region_width = 80  # pixels
         center_region_height = 80  # pixels
+        forward = 0
+        # Adjust vertical position based on shelf level
+        if level == "level 2":
+            y_offset = 100  # Shift box downward by 80 pixels
+        else:
+            y_offset = 0
+        
         center_box = {
             "xmin": int(camera_center_x - center_region_width/4),
             "xmax": int(camera_center_x + center_region_width/4),
-            "ymin": int(camera_center_y - center_region_height/4),
-            "ymax": int(camera_center_y + center_region_height/4)
+            "ymin": int(camera_center_y - center_region_height/4 + y_offset),
+            "ymax": int(camera_center_y + center_region_height/4 + y_offset)
         }
-        if level == "level 2":   
-            center_box["ymin"] -= 80
-            center_box["ymax"] -= 80
+        print("center box: ", center_box)
         center_x = (center_box["xmin"] + center_box["xmax"]) / 2
         center_y = (center_box["ymin"] + center_box["ymax"]) / 2
         box_width = center_box["xmax"] - center_box["xmin"]
@@ -684,11 +692,11 @@ class ArmManipulation:
                 rospy.loginfo(f"{direction} -Rotating right")
             elif error > 0:
                 twist.angular.z = rotation_speed
-                direction = "going left"
+                direction = "left"
                 rospy.loginfo(f"{direction} - Rotating left to avoid object on right")
             else:
                 twist.angular.z = -rotation_speed
-                direction = "going right"
+                direction = "right"
                 rospy.loginfo(f"{direction} -Rotating right to avoid object on left")
 
             self.pub_base.publish(twist)
@@ -704,7 +712,7 @@ class ArmManipulation:
                     if placement_distance < object_distance:
                         print("Object is in front of placement area, need to adjust")
                         if attempt > 3:
-                            if direction == "going left" or direction == "left":
+                            if direction == "left":
                                 print("Changed direction to right")
                                 direction = "right"
                             else:                    
@@ -714,17 +722,24 @@ class ArmManipulation:
                     else:
                         print ("Object is behind placement area, safe to place")
                         if placement_distance > 48:
-                            forward = placement_distance - 50
-                            self.move_forward(forward)
+                            forward = placement_distance - object_distance
                         else:
-                            self.move_forward(2)
-                        return True
+                            forward = 2
+                        return True, forward
                 else:
                     rospy.loginfo("Center region still blocked")
+                    if attempt == max_attempts-1:
+                        if direction == "left":
+                            print("Changed direction to right")
+                            direction = "right"
+                        else:                    
+                            print("Changed direction to left")        
+                            direction = "left"
+                        attempt = -10
                     continue
 
         rospy.logwarn("Could not find safe center area after maximum attempts")
-        return False
+        return False, forward
 
     def stop_robot(self):
         twist = Twist()
@@ -791,27 +806,30 @@ class ArmManipulation:
         rospy.sleep(5)
         self.pub_arm1.publish(Float64(0))
 
-    def move_to_level2_place_position(self):
-        """Moves the arm to the place-down position."""
+    def move_to_level2_place_position(self, forward):
         rospy.loginfo("Moving the arm to the place-down position.")
-        self.pub_arm1.publish(Float64(-19))
-        self.pub_arm2.publish(Float64(math.radians(63)))
-        self.pub_arm3.publish(Float64(math.radians(0.00)))
-        self.pub_arm4.publish(Float64(math.radians(-4)))
+        self.pub_arm1.publish(Float64(0))
+        self.pub_arm2.publish(Float64(math.radians(56)))
+        self.pub_arm3.publish(Float64(math.radians(21)))
+        self.pub_arm4.publish(Float64(math.radians(2)))
 
         rospy.sleep(5)
+        self.move_forward(forward + 10)
+        rospy.sleep(1)
         self.pub_gripper.publish(Float64(0.1))
         self.pub_gripper.publish(Float64(-0.2))
         self.pub_gripper.publish(Float64(-0.3))  # Open gripper
         rospy.sleep(1)
 
+        self.move_forward(-forward-10)
+        self.gripper_angle = 0.3
         # Return to the ready position after placing
         self.move_to_ready_position()
         return True
-    
-    def move_to_default_place_position(self):
-        """Moves the arm to the place-down position."""
-        rospy.loginfo("Moving the arm to the place-down position.")
+
+    def move_to_default_place_position(self, forward):
+        rospy.loginfo("Moving the arm to default position.")
+        self.move_forward(forward)
         self.pub_arm1.publish(Float64(0))
         self.pub_arm2.publish(Float64(math.radians(32)))
         self.pub_arm3.publish(Float64(math.radians(0.00)))
@@ -825,30 +843,38 @@ class ArmManipulation:
 
         # Return to the ready position after placing
         self.move_to_ready_position()
+        self.move_forward(-forward)
         return True
     
     def align_gripper_with_object(self, obj_center_x):
-        CAMERA_CENTER_X = 320
+        frame_width = self.depth_frame.shape[1] if self.depth_frame is not None else 640
+        CAMERA_CENTER_X = frame_width / 2
         MAX_ANGLE = 1.0
-        LEFT_OFFSET = 0.1
-        RIGHT_OFFSET = -0.1
+        LEFT_OFFSET = 0.15
+        RIGHT_OFFSET = -0
         
         # Calculate the error: positive means object is to the right, negative means left
         error = CAMERA_CENTER_X - obj_center_x
         
         # Convert pixel error to angle: positive error (right) = positive angle (turn right)
         angle_to_object = (error / CAMERA_CENTER_X) * MAX_ANGLE
+        print("Angle to object:", angle_to_object)
         
         # Apply offset compensation for gripper mechanics if needed
-        if angle_to_object > 0.01:  # Object is to the left, gripper needs to turn left
+        if angle_to_object > 0.2:  # Object is to the left, gripper needs to turn left
+            angle_to_object += LEFT_OFFSET + 0.1
+        elif angle_to_object > 0.01:  # Object is to the left, gripper needs to turn left
             angle_to_object += LEFT_OFFSET
             print("Adjusting angle for left offset compensation:", angle_to_object)
-        elif angle_to_object < -0.1:  # Object is to the right, gripper needs to turn right
+        elif angle_to_object > -0.2:
+            LEFT_OFFSET = 0.1
+            angle_to_object += LEFT_OFFSET
+        elif angle_to_object < -0.2:  # Object is to the right, gripper needs to turn right
             angle_to_object += RIGHT_OFFSET
             print("Adjusting angle for right offset compensation:", angle_to_object)
 
-        angle_to_object += 0.1
-        print("Angle to object:", angle_to_object)
+        angle_to_object += 0
+        
         
         rospy.loginfo(f"Object at x={obj_center_x:.1f}, center={CAMERA_CENTER_X}, error={error:.1f}, angle={angle_to_object:.2f}")
         self.pub_arm1.publish(Float64(angle_to_object))
