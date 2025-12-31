@@ -74,7 +74,11 @@ class ArmManipulation:
 
         self.CATEGORY_LOCATIONS = {
             'drinks': 'level 1',                   
-            'food': 'level 2',                   
+            'food': 'level 2',
+            'juice': 'left',
+            'chips': 'left',
+            'milk': 'right',
+            'yogurt': 'right'                 
         }
 
         # Detection service client
@@ -137,88 +141,101 @@ class ArmManipulation:
             rospy.logerr(f"Detection service call failed: {e}")
             return None
     
+    def pick_mode(self, req):
+        response = ArmHeadGripperResponse()
+        message = None
+        self.set_gripper_joint(req.class_name)
+        self.approach_object(0, 0, 0, 0, req.class_name, 62)
+        # Get fresh detection for pickup
+        detection = self.get_fresh_detection("pickup", req.class_name)
+        if detection is None:
+            response.success = False
+            response.message = "Failed to get fresh detection for pickup"
+            return response
+                
+        success = self.execute_pick_sequence(
+            detection['xmin'], detection['xmax'], 
+            detection['ymin'], detection['ymax'], 
+            detection['class_name']
+        )
+
+        if self.check_region_clear(self.gripper_region):
+            message = f"I have picked up the {detection['class_name']} from the table"
+        else:
+            success = False
+            message = "Could not safely pick up the object"
+
+        response.success = success
+        response.message = message 
+        return response
+    
+    def place_mode(self, req):
+        response = ArmHeadGripperResponse()
+        self.move_forward(0)
+        object_location = self.get_object_location(req.class_name)
+        detection = self.get_fresh_detection("place", req.class_name)
+        if detection:
+            if object_location == "level 2":
+                approached = self.approach_object(
+                    detection['xmin'], detection['xmax'], 
+                    detection['ymin'], detection['ymax'], 
+                    detection['class_name'], 75)
+            else:
+                approached = self.approach_object(
+                    detection['xmin'], detection['xmax'], 
+                    detection['ymin'], detection['ymax'], 
+                    detection['class_name'], 52)
+        # Implement else for no detection case 
+    
+        if approached:
+            center_clear, forward = self.move_away_from_objects_to_center(req.class_name, object_location)
+            if forward is None:
+                forward = 0
+                if center_clear:
+                    rospy.loginfo("Center area is clear for placement")
+                    # If no coordinates are given, use default place position
+                    if object_location == "level 2":
+                        rospy.loginfo("Using default place position")
+                        success = self.move_to_level2_place_position(forward)
+                    else:
+                        rospy.loginfo(f"Placing at given coordinates")
+                        success = self.move_to_default_place_position(forward)
+                        
+                    object_name = req.class_name if req.class_name else "object"
+                    message = f"I have placed down the {object_name} in the cabinet"
+                else:
+                    # Fallback to rotation-based empty location search
+                    rospy.logerr("Center clearing failed")
+                    success = False
+                    message = "Could not find safe placement position"
+
+            else:
+                rospy.logerr("Could not find safe placement position, using default")
+                success = False
+                message = "Could not find safe placement position"
+
+        response.success = success
+        response.message = message 
+        return response
+
     def handle_arm_manipulation(self, req):
         """
         Service handler for arm manipulation requests
         """
         response = ArmHeadGripperResponse()
-        message = None
         try:
             rospy.loginfo(f"Received arm manipulation request: mode={req.mode}, class={req.class_name}")
             
             if req.mode.lower() == "pick":
-                self.set_gripper_joint(req.class_name)
-                self.approach_object(req.xmin, req.xmax, req.ymin, req.ymax, req.class_name, 62)
-                # Get fresh detection for pickup
-                detection = self.get_fresh_detection("pickup", req.class_name)
-                if detection is None:
-                    response.success = False
-                    response.message = "Failed to get fresh detection for pickup"
-                    return response
-                
-                success = self.execute_pick_sequence(
-                    detection['xmin'], detection['xmax'], 
-                    detection['ymin'], detection['ymax'], 
-                    detection['class_name']
-                )
-
-                if self.check_region_clear(self.gripper_region):
-                    message = f"I have picked up the {detection['class_name']} from the table"
-                else:
-                    success = False
-                    message = "Could not safely pick up the object"
+                response = self.pick_mode(req)
                 
             elif req.mode.lower() == "place":
-                self.move_forward(0)
-                object_location = self.get_object_location(req.class_name)
-                detection = self.get_fresh_detection("place", req.class_name)
-                if object_location == "level 2":
-                    approached = self.approach_object(
-                                detection['xmin'], detection['xmax'], 
-                                detection['ymin'], detection['ymax'], 
-                                detection['class_name'], 75)
-                else:
-                    approached = self.approach_object(
-                                detection['xmin'], detection['xmax'], 
-                                detection['ymin'], detection['ymax'], 
-                                detection['class_name'], 52)
-    
-                if approached:
-                    center_clear, forward = self.move_away_from_objects_to_center(req.class_name, object_location)
-                    if forward is None:
-                        forward = 0
-        
-                    if center_clear:
-                        rospy.loginfo("Center area is clear for placement")
-                        # If no coordinates are given, use default place position
-                        if object_location == "level 2":
-                            rospy.loginfo("Using default place position")
-                            success = self.move_to_level2_place_position(forward)
-                        else:
-                            rospy.loginfo(f"Placing at given coordinates")
-                            success = self.move_to_default_place_position(forward)
-                        
-                        object_name = req.class_name if req.class_name else "object"
-                        message = f"I have placed down the {object_name} in the cabinet"
-                    else:
-                        # Fallback to rotation-based empty location search
-                        rospy.logerr("Center clearing failed")
-                        success = False
-                        message = "Could not find safe placement position"
-
-                else:
-                    rospy.logerr("Could not find safe placement position, using default")
-                    success = False
-                    message = "Could not find safe placement position"
-
-            response.success = success
-            response.message = message if success else "Operation failed"
+                response = self.place_mode(req) 
             
         except Exception as e:
             rospy.logerr(f"Error in arm manipulation service: {e}")
             response.success = False
             response.message = f"Error: {str(e)}"
-        
         return response
     
     def get_object_location(self, class_name):
@@ -635,10 +652,10 @@ class ArmManipulation:
             y_offset = 0
         
         center_box = {
-            "xmin": int(camera_center_x - center_region_width/4),
-            "xmax": int(camera_center_x + center_region_width/4),
-            "ymin": int(camera_center_y - center_region_height/4 + y_offset),
-            "ymax": int(camera_center_y + center_region_height/4 + y_offset)
+            "xmin": int(camera_center_x - center_region_width/3),
+            "xmax": int(camera_center_x + center_region_width/3),
+            "ymin": int(camera_center_y - center_region_height/3 + y_offset),
+            "ymax": int(camera_center_y + center_region_height/3 + y_offset)
         }
         print("center box: ", center_box)
         center_x = (center_box["xmin"] + center_box["xmax"]) / 2
@@ -646,7 +663,7 @@ class ArmManipulation:
         box_width = center_box["xmax"] - center_box["xmin"]
         box_height = center_box["ymax"] - center_box["ymin"]
 
-        max_attempts = 10
+        max_attempts = 3
         redetection_interval = 3
         attempt = 0
         direction = None
