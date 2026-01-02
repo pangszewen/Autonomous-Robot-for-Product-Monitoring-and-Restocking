@@ -29,7 +29,7 @@ class GroceryDetection:
         self.service = rospy.Service('startDetect', StartDetection, self.handle_detection_request)
         self.service = rospy.Service('startMonitoring', StartMonitoring, self.handle_monitoring_request)
         self.cv_image = None 
-        self.GRIPPER_REGION = (-1, -1, -1, -1)
+        self.GRIPPER_REGION = (256, 450, 357, 472)
         self.display_image = None 
         self.latest_frame = None
         self.lock = threading.Lock()
@@ -251,7 +251,6 @@ class GroceryDetection:
         return response
 
     def pickup_mode(self, target_class, detected_objects, update):
-        self.GRIPPER_REGION = (0, 0, 0, 0) 
         object_counts = self.count_objects(detected_objects)
         if update:
             self.update_stock_firebase(object_counts)
@@ -280,7 +279,6 @@ class GroceryDetection:
         return response
 
     def place_mode(self, target_class, detected_objects):
-        self.GRIPPER_REGION = (256, 450, 357, 472)
         placement = self.find_object_position(target_class, detected_objects)    
         if placement:
             response = StartDetectionResponse(
@@ -303,7 +301,6 @@ class GroceryDetection:
         return response
     
     def all_detections_mode(self, target_class, detected_objects):
-        self.GRIPPER_REGION = (0, 0, 0, 0) 
         if target_class == "":     
             response = self.get_all_detections(detected_objects)
         else:

@@ -3,11 +3,14 @@ import rospy
 import math
 import numpy as np
 import threading
+import json
+import os
+from datetime import datetime
 from std_msgs.msg import Float64
 from sensor_msgs.msg import Image, LaserScan
 from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge, CvBridgeError
-from fyp_pang.srv import ArmHeadGripper, ArmHeadGripperResponse
+from fyp_pang.srv import ArmHeadGripper, ArmHeadGripperResponse, Navigate
 from fyp_pang.srv import StartDetection, StartDetectionRequest
 
 class ArmManipulation:
@@ -67,6 +70,8 @@ class ArmManipulation:
         self.rotation_step_for_search = 15  # degrees per search step
         self.preferred_placement_distance = 80.0  # cm preferred distance for placement
 
+        self.viz_data_file = "/tmp/robot_viz_data.json"
+
         self.OBJECT_CATEGORIES = {
             'drinks': ['water', 'coffee', 'juice', 'milk', 'soda'],
             'food': ['tuna', 'cup noodle', 'cereal', 'jam', 'yogurt', 'biscuits', 'chips', 'chocolate']
@@ -89,6 +94,24 @@ class ArmManipulation:
         self.service = rospy.Service('arm_manipulation', ArmHeadGripper, self.handle_arm_manipulation)
         rospy.loginfo("Arm Manipulation Service initialized and ready")
 
+    def publish_viz(self, object_class="", distance=0, theta2=0, theta3=0, theta4=0, positional_error=0):
+        """Simple visualization publisher"""
+        data = {
+            "object_class": object_class,
+            "distance": distance,
+            "theta2": theta2,
+            "theta3": theta3,
+            "theta4": theta4,
+            "positional_error": positional_error,
+            "timestamp": datetime.now().strftime("%H:%M:%S")
+        }
+        
+        try:
+            with open(self.viz_data_file, 'w') as f:
+                json.dump(data, f)
+        except Exception as e:
+            rospy.logwarn(f"Viz update failed: {e}")
+
     def setup_detection_client(self):
         """Initialize the detection service client"""
         try:
@@ -99,6 +122,19 @@ class ArmManipulation:
         except rospy.ROSException as e:
             rospy.logerr(f"Failed to connect to detection service: {e}")
             self.detection_client = None
+
+    def setup_navigation_client(self, target_location):
+        rospy.wait_for_service('navigate')
+        try:
+            get_location_service = rospy.ServiceProxy('navigate', Navigate)
+            print("in navigation service")
+            self.location_response = get_location_service(target_location)
+            self.location_response_message = self.location_response.reach
+            
+            return self.location_response_message
+        
+        except rospy.ServiceException as e:
+            print("Service call failed:", e)
 
     def get_fresh_detection(self, mode, class_name, update = False):                                       
         if self.detection_client is None:
@@ -179,38 +215,42 @@ class ArmManipulation:
                 approached = self.approach_object(
                     detection['xmin'], detection['xmax'], 
                     detection['ymin'], detection['ymax'], 
-                    detection['class_name'], 75)
+                    detection['class_name'], 78)
             else:
                 approached = self.approach_object(
                     detection['xmin'], detection['xmax'], 
                     detection['ymin'], detection['ymax'], 
                     detection['class_name'], 52)
-        # Implement else for no detection case 
+        else:
+            object_side = self.CATEGORY_LOCATIONS.get(req.class_name)
+            if object_side == "left":
+                self.setup_navigation_client("left_shelf")
+            else:
+                self.setup_navigation_client("right_shelf")
+            if object_location == "level 2":
+                success = self.move_to_level2_place_position(13)
+            else:
+                success = self.move_to_default_place_position(33)
+            approached = False
+            message = "Placement succeed for zero products on shelf"
     
         if approached:
             center_clear, forward = self.move_away_from_objects_to_center(req.class_name, object_location)
-            if forward is None:
-                forward = 0
-                if center_clear:
-                    rospy.loginfo("Center area is clear for placement")
-                    # If no coordinates are given, use default place position
-                    if object_location == "level 2":
-                        rospy.loginfo("Using default place position")
-                        success = self.move_to_level2_place_position(forward)
-                    else:
-                        rospy.loginfo(f"Placing at given coordinates")
-                        success = self.move_to_default_place_position(forward)
-                        
-                    object_name = req.class_name if req.class_name else "object"
-                    message = f"I have placed down the {object_name} in the cabinet"
+            if center_clear:
+                rospy.loginfo("Center area is clear for placement")
+                # If no coordinates are given, use default place position
+                if object_location == "level 2":
+                    rospy.loginfo("Using default place position")
+                    success = self.move_to_level2_place_position(forward)
                 else:
-                    # Fallback to rotation-based empty location search
-                    rospy.logerr("Center clearing failed")
-                    success = False
-                    message = "Could not find safe placement position"
-
+                    rospy.loginfo(f"Placing at given coordinates")
+                    success = self.move_to_default_place_position(forward)
+                        
+                object_name = req.class_name if req.class_name else "object"
+                message = f"I have placed down the {object_name} in the cabinet"
             else:
-                rospy.logerr("Could not find safe placement position, using default")
+                # Fallback to rotation-based empty location search
+                rospy.logerr("Center clearing failed")
                 success = False
                 message = "Could not find safe placement position"
 
@@ -256,7 +296,7 @@ class ArmManipulation:
     
     def set_gripper_joint(self, class_name):
         if class_name in ['juice', 'yogurt']:
-            self.gripper_angle = 0.3  # Open wider for drinks
+            self.gripper_angle = 0.25  # Open wider for drinks
         elif class_name == 'milk':
             self.gripper_angle = 0.4  # Tighter grip for milk
         elif class_name == 'chips':
@@ -392,30 +432,10 @@ class ArmManipulation:
 
         # Transform coordinates and execute grab
         robot_x, robot_y, robot_z = self.transform_to_robot_frame_depth(distance, final_center_x, final_center_y)
-        success = self.pickup_object(robot_x, robot_z, 90)
+        success = self.pickup_object(robot_x, robot_z, 90, class_name)
         self.move_forward(-5)
         
         rospy.loginfo(f"Pick sequence {'completed successfully' if success else 'failed'}")
-        return success
-
-    def execute_place_sequence(self, xmin, xmax, ymin, ymax):
-        """Execute placement sequence at detected location"""
-        rospy.loginfo("Starting place sequence at detected location...")
-        
-        center_x = (xmin + xmax) / 2
-        center_y = (ymin + ymax) / 2
-        box_width = abs(xmax - xmin)
-        box_height = abs(ymax - ymin)
-        
-        # Get depth for placement location
-        distance = 40  # Default distance for placement
-
-        # Transform coordinates
-        robot_x, robot_y, robot_z = self.transform_to_robot_frame_depth(distance, center_x, center_y)
-        
-        # Execute placement
-        success = self.place_object(robot_x, robot_z)
-        rospy.loginfo(f"Place sequence {'completed successfully' if success else 'failed'}")
         return success
 
     def navigate_to_object_with_redetection(self, mode, class_name, center_x, center_y, box_width, box_height):
@@ -443,6 +463,7 @@ class ArmManipulation:
             if distance is None:
                 rospy.logwarn("Cannot get distance to object")
                 return False
+            self.publish_viz(class_name, distance, 0, 0, 0)
             
             # Check if object is centered and reachable
             is_centered = self.check_object_centered(center_x)
@@ -452,7 +473,7 @@ class ArmManipulation:
             
             if is_centered and is_reachable:
                 rospy.loginfo("Object perfectly positioned!")
-                self.move_forward(3)
+                self.move_forward(2)
                 return True
             
             if not is_centered:
@@ -647,7 +668,7 @@ class ArmManipulation:
         forward = 0
         # Adjust vertical position based on shelf level
         if level == "level 2":
-            y_offset = 100  # Shift box downward by 80 pixels
+            y_offset = 90  # Shift box downward
         else:
             y_offset = 0
         
@@ -663,7 +684,7 @@ class ArmManipulation:
         box_width = center_box["xmax"] - center_box["xmin"]
         box_height = center_box["ymax"] - center_box["ymin"]
 
-        max_attempts = 3
+        max_attempts = 10
         redetection_interval = 3
         attempt = 0
         direction = None
@@ -724,7 +745,7 @@ class ArmManipulation:
             if distance_from_center > center_region_width / 2:
                 rospy.loginfo(f"Object at x={det_center_x:.1f} is far enough from center — safe to place")
                 if self.check_region_clear(center_box):
-                    placement_distance = self.get_robust_depth(center_x, center_y, box_width, box_height) - 8
+                    placement_distance = self.get_robust_depth(center_x, center_y, box_width, box_height) - 7
                     print(f"Object distance ({object_distance:.1f}cm), placement distance ({placement_distance:.1f}cm)")
                     if placement_distance < object_distance:
                         print("Object is in front of placement area, need to adjust")
@@ -834,7 +855,9 @@ class ArmManipulation:
         self.move_forward(forward + 10)
         rospy.sleep(1)
         self.pub_gripper.publish(Float64(0.1))
+        rospy.sleep(1)
         self.pub_gripper.publish(Float64(-0.2))
+        rospy.sleep(1)
         self.pub_gripper.publish(Float64(-0.3))  # Open gripper
         rospy.sleep(1)
 
@@ -852,9 +875,11 @@ class ArmManipulation:
         self.pub_arm3.publish(Float64(math.radians(0.00)))
         self.pub_arm4.publish(Float64(math.radians(60)))
 
-        rospy.sleep(5)
+        rospy.sleep(3)
         self.pub_gripper.publish(Float64(0.1))
+        rospy.sleep(1)
         self.pub_gripper.publish(Float64(-0.2))
+        rospy.sleep(1)
         self.pub_gripper.publish(Float64(-0.3))  # Open gripper
         rospy.sleep(1)
 
@@ -920,15 +945,18 @@ class ArmManipulation:
         twist.linear.x = 0.0
         self.pub_base.publish(twist)
 
-    def pickup_object(self, x, z, alpha_deg):
+    def pickup_object(self, x, z, alpha_deg, class_name):
         rospy.loginfo("Executing pickup sequence")
         theta2, theta3, theta4 = self.calculate_inverse_kinematics(x, z, alpha_deg)
+        target_x, target_z = self.calculate_forward_kinematics(theta2, theta3, theta4)
+        positional_error = self.calculate_positional_error(target_x, target_z, x, z)
         
         if theta2 is None or theta3 is None or theta4 is None:
             rospy.logwarn("Failed to calculate joint angles for pickup")
             return False
         
         rospy.loginfo(f"Pickup angles - Theta2: {theta2:.2f}°, Theta3: {theta3:.2f}°, Theta4: {theta4:.2f}°")
+        self.publish_viz(class_name, x, theta2, theta3, theta4, positional_error)
         
         # Open gripper
         self.pub_gripper.publish(Float64(-0.3))
@@ -948,33 +976,34 @@ class ArmManipulation:
         self.move_to_ready_position()
         return True
 
-    def place_object(self, robot_x, robot_z):
-        rospy.loginfo("Executing placement sequence")
-        theta2, theta3, theta4 = self.calculate_inverse_kinematics(robot_x, robot_z, 90)
-        
-        if theta2 is None or theta3 is None or theta4 is None:
-            rospy.logwarn("Cannot reach placement position")
-            return False
-        
-        rospy.loginfo(f"Placement angles - Theta2: {theta2:.2f}°, Theta3: {theta3:.2f}°, Theta4: {theta4:.2f}°")
-        
-        # Move to placement position
-        self.pub_arm1.publish(Float64(0))
-        self.pub_arm2.publish(Float64(math.radians(theta2)))
-        self.pub_arm3.publish(Float64(math.radians(theta3)))
-        self.pub_arm4.publish(Float64(math.radians(theta4)))
-        rospy.sleep(3)
-        
-        # Open gripper to place object
-        self.pub_gripper.publish(Float64(0.1))
-        self.pub_gripper.publish(Float64(-0.2))
-        self.pub_gripper.publish(Float64(-0.3)) 
-        rospy.sleep(1)
-        
-        # Return to ready position
-        self.move_to_ready_position()
-        return True
+    def calculate_forward_kinematics(self, theta2_deg, theta3_deg, theta4_deg):
+        # Convert degrees to radians
+        theta2 = math.radians(theta2_deg)
+        theta3 = math.radians(theta3_deg)
+        theta4 = math.radians(theta4_deg)
+        # Compute cumulative angle
+        alpha = theta2 + theta3 + theta4
 
+        # Forward kinematics equations
+        x = (
+            self.L2 * math.sin(theta2) +
+            self.L3 * math.sin(theta2 + theta3) +
+            self.L4 * math.sin(alpha)
+        )
+        z = (
+            self.L2 * math.cos(theta2) +
+            self.L3 * math.cos(theta2 + theta3) +
+            self.L4 * math.cos(alpha)
+        )
+
+        return x, z
+    
+    def calculate_positional_error(self, target_x, target_z, actual_x, actual_z):
+        error = math.sqrt((actual_x - target_x)**2 +
+                  (actual_z - target_z)**2)
+
+        print(f"Position Error: {error:.3f} m")
+        return error
 
 if __name__ == '__main__':
     try:

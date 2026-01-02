@@ -205,7 +205,7 @@ class Run:
                         stock_status = self.restocking(product, stock_status)
                         if stock_status:
                             # Have stock
-                            self.monitoring()
+                            low_stock = self.monitoring()
                             if product in self.low_stock_product:
                                 index = self.low_stock_product.index(product)
                                 count = self.low_stock_count[index]
@@ -227,7 +227,7 @@ class Run:
             return False
         
     def test(self):
-        self.restocking('juice', True)
+        self.restocking('yogurt', True)
         #place_status = self.arm_manipulation("place", 0, 0, 0, 0, "chips")
             
     """----------------------------------------------------------------------------------- """
