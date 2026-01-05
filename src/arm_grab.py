@@ -36,6 +36,9 @@ class ArmManipulation:
         self.L2, self.L3, self.L4 = 10.16, 10.16, 6.0
         self.JOINT_MIN = -1.0  # radians
         self.JOINT_MAX = 1.0
+        self.alpha = 90
+        self.gripper_z_offset =  self.L4 * math.cos(self.alpha)
+        self.gripper_x_offset =  self.L4 * math.sin(self.alpha)
 
         # Current sensor data
         self.depth_frame = None
@@ -181,7 +184,7 @@ class ArmManipulation:
         response = ArmHeadGripperResponse()
         message = None
         self.set_gripper_joint(req.class_name)
-        self.approach_object(0, 0, 0, 0, req.class_name, 62)
+        self.approach_object(0, 0, 0, 0, req.class_name, 60)
         # Get fresh detection for pickup
         detection = self.get_fresh_detection("pickup", req.class_name)
         if detection is None:
@@ -207,7 +210,6 @@ class ArmManipulation:
     
     def place_mode(self, req):
         response = ArmHeadGripperResponse()
-        self.move_forward(0)
         object_location = self.get_object_location(req.class_name)
         detection = self.get_fresh_detection("place", req.class_name)
         if detection:
@@ -215,7 +217,7 @@ class ArmManipulation:
                 approached = self.approach_object(
                     detection['xmin'], detection['xmax'], 
                     detection['ymin'], detection['ymax'], 
-                    detection['class_name'], 78)
+                    detection['class_name'], 80)
             else:
                 approached = self.approach_object(
                     detection['xmin'], detection['xmax'], 
@@ -432,7 +434,7 @@ class ArmManipulation:
 
         # Transform coordinates and execute grab
         robot_x, robot_y, robot_z = self.transform_to_robot_frame_depth(distance, final_center_x, final_center_y)
-        success = self.pickup_object(robot_x, robot_z, 90, class_name)
+        success = self.pickup_object(robot_x, robot_z, self.alpha, class_name)
         self.move_forward(-5)
         
         rospy.loginfo(f"Pick sequence {'completed successfully' if success else 'failed'}")
@@ -473,7 +475,6 @@ class ArmManipulation:
             
             if is_centered and is_reachable:
                 rospy.loginfo("Object perfectly positioned!")
-                self.move_forward(2)
                 return True
             
             if not is_centered:
@@ -759,7 +760,7 @@ class ArmManipulation:
                             attempt = -10
                     else:
                         print ("Object is behind placement area, safe to place")
-                        if placement_distance > 48:
+                        if placement_distance > 55:
                             forward = placement_distance - object_distance
                         else:
                             forward = 2
@@ -801,7 +802,7 @@ class ArmManipulation:
     def calculate_inverse_kinematics(self, x, z, alpha_deg):
         print("x: ", x, "z: ", z)
         alpha = math.radians(alpha_deg)
-        # End effector position 
+        # End effector position
         m = z - self.L4 * math.cos(alpha)
         n = x - self.L4 * math.sin(alpha)
 
@@ -949,7 +950,7 @@ class ArmManipulation:
         rospy.loginfo("Executing pickup sequence")
         theta2, theta3, theta4 = self.calculate_inverse_kinematics(x, z, alpha_deg)
         target_x, target_z = self.calculate_forward_kinematics(theta2, theta3, theta4)
-        positional_error = self.calculate_positional_error(target_x, target_z, x, z)
+        positional_error = self.calculate_position_error(target_x, target_z, x, z)
         
         if theta2 is None or theta3 is None or theta4 is None:
             rospy.logwarn("Failed to calculate joint angles for pickup")
@@ -997,8 +998,8 @@ class ArmManipulation:
         )
 
         return x, z
-    
-    def calculate_positional_error(self, target_x, target_z, actual_x, actual_z):
+
+    def calculate_position_error(self, target_x, target_z, actual_x, actual_z): 
         error = math.sqrt((actual_x - target_x)**2 +
                   (actual_z - target_z)**2)
 

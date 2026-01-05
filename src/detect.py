@@ -161,7 +161,7 @@ class GroceryDetection:
             best_object = max(filtered, key=lambda obj: obj['confidence'])
             return best_object
         else:
-            for i in range(10):
+            for i in range(3):
                 detected_objects = self.detect_objects(self.latest_frame.copy())
                 if any(obj['class_name'] == target_class for obj in detected_objects):
                     filtered = [obj for obj in detected_objects if obj['class_name'] == target_class]
@@ -210,6 +210,15 @@ class GroceryDetection:
     def handle_monitoring_request(self, req):
         print("Monitoring Request Received")
         response = StartMonitoringResponse()
+        max_wait_time = 5.0
+        wait_start = rospy.Time.now()
+
+        while self.latest_frame is None and (rospy.Time.now() - wait_start).to_sec() < max_wait_time:
+            rospy.sleep(0.1)
+
+        if self.latest_frame is None:
+            return StartDetectionResponse(0, 0, 0, 0, "", False, "No camera image available", None)
+        
         detected_objects = self.detect_objects(self.latest_frame.copy())
         rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
         
@@ -313,15 +322,6 @@ class GroceryDetection:
         mode = req.mode
         target_class = req.class_name
         update = req.startdetect
-
-        max_wait_time = 5.0
-        wait_start = rospy.Time.now()
-
-        while self.latest_frame is None and (rospy.Time.now() - wait_start).to_sec() < max_wait_time:
-            rospy.sleep(0.1)
-
-        if self.latest_frame is None:
-            return StartDetectionResponse(0, 0, 0, 0, "", False, "No camera image available", None)
 
         try:
             detected_objects = self.detect_objects(self.latest_frame.copy())
