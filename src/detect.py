@@ -2,6 +2,8 @@
 
 import rospy
 import cv2
+import time
+import torch
 import threading
 from sensor_msgs.msg import Image
 from fyp_pang.msg import Boundingbox
@@ -78,20 +80,20 @@ class GroceryDetection:
         # Start detection and display threads
         threading.Thread(target=self.detection_loop, daemon=True).start()
 
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model.to(self.device)
+
     def image_callback(self, msg_color):
         """Only store latest frame, no detection here."""
         try:
             frame = self.bridge.imgmsg_to_cv2(msg_color, "bgr8")
-            #frame = np.flip(frame, axis=1)
             with self.lock:
                 self.latest_frame = frame
         except CvBridgeError as e:
             rospy.logwarn(str(e))
 
     def detection_loop(self):
-        """Run YOLO detection in a separate thread."""
-        rate = rospy.Rate(10)  # Run detection at max 10 FPS
-        while not rospy.is_shutdown():
+        while not rospy.is_shutdown():  # Remove rate limiter
             frame_copy = None
             with self.lock:
                 if self.latest_frame is not None:
@@ -99,16 +101,24 @@ class GroceryDetection:
 
             if frame_copy is not None:
                 self.detect_objects(frame_copy)
-            
-            rate.sleep()
-    
+        
     def detect_objects(self, frame):
-        """Run YOLO and update display_image."""
-        results = self.model(frame, conf=self.CONFIDENCE_THRESHOLD, show=False)
+        """Optimized YOLO detection."""        
+        # Run YOLO with optimizations
+        results = self.model(
+            frame,
+            conf=self.CONFIDENCE_THRESHOLD,
+            show=False,
+            verbose=False, 
+            device=self.device,
+            half=True if self.device == 'cuda' else False,  
+        )
+        
         detected_objects = []
 
         if results[0].boxes:
             for box in results[0].boxes.data:
+                # Scale coordinates back to original size
                 x1, y1, x2, y2, conf, cls = box[:6]
                 cls = int(cls)      
                 
@@ -120,20 +130,20 @@ class GroceryDetection:
                             'class_name': self.OBJECT_NAMES[cls]
                         })
                     
+                        # Draw on ORIGINAL frame
                         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
                         cv2.putText(
                             frame,
                             f"{self.OBJECT_NAMES[cls]} ({conf:.2f})",
-                            (int(x1), int(y1) - 10),
+                            (int(x1), int(y1 - 10)),
                             cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            (0, 255, 0),
-                            2,
+                            0.5, (0, 255, 0), 2
                         )
-        # Draw gripper region for reference
+        
+        # Draw gripper region
         gx1, gy1, gx2, gy2 = self.GRIPPER_REGION
         cv2.rectangle(frame, (gx1, gy1), (gx2, gy2), (0, 0, 255), 2)
-  
+    
         with self.lock:
             self.display_image = frame
             self.cv_image = frame
@@ -259,7 +269,8 @@ class GroceryDetection:
             response.objects.append(msg_obj)
         return response
 
-    def pickup_mode(self, target_class, detected_objects, update):
+    def pickup_mode(self, target_class, update):
+        detected_objects = self.detect_objects(self.latest_frame.copy())
         object_counts = self.count_objects(detected_objects)
         if update:
             self.update_stock_firebase(object_counts)
@@ -287,7 +298,9 @@ class GroceryDetection:
         rospy.loginfo(f"Detected object: {best_object['class_name']} with confidence {best_object['confidence']:.2f}")
         return response
 
-    def place_mode(self, target_class, detected_objects):
+    def place_mode(self, target_class):
+        self.GRIPPER_REGION = (256, 450, 357, 472)
+        detected_objects = self.detect_objects(self.latest_frame.copy())
         placement = self.find_object_position(target_class, detected_objects)    
         if placement:
             response = StartDetectionResponse(
@@ -309,7 +322,9 @@ class GroceryDetection:
             )
         return response
     
-    def all_detections_mode(self, target_class, detected_objects):
+    def all_detections_mode(self, target_class):
+        self.GRIPPER_REGION = (0, 0, 0, 0)
+        detected_objects = self.detect_objects(self.latest_frame.copy())
         if target_class == "":     
             response = self.get_all_detections(detected_objects)
         else:
@@ -324,27 +339,18 @@ class GroceryDetection:
         update = req.startdetect
 
         try:
-            detected_objects = self.detect_objects(self.latest_frame.copy())
-            rospy.loginfo(f"Detection completed, found {len(detected_objects)} objects")
-            
             if mode == 'all':
-                response = self.all_detections_mode(target_class, detected_objects)
+                response = self.all_detections_mode(target_class)
                 return response
-
-            if detected_objects:
-                if mode == 'pickup':
-                    response = self.pickup_mode(target_class, detected_objects, update)
-                elif mode == 'place':
-                    response = self.place_mode(target_class, detected_objects)
+            elif mode == 'pickup':
+                response = self.pickup_mode(target_class, update)
+            elif mode == 'place':
+                response = self.place_mode(target_class)
                     
-                return response
-            else:
-                rospy.logwarn("No detected objects")
-                return StartDetectionResponse(0, 0, 0, 0, "", False, "No detected objects", None)
+            return response
+        
         except Exception as e:
             return StartDetectionResponse(0, 0, 0, 0, "", False, str(e), None)
-            
-        
 
 if __name__ == "__main__":
     try:

@@ -5,10 +5,6 @@ import rospy
 from fyp_pang.srv import Navigate, StartDetection, StartMonitoring
 from fyp_pang.srv import ArmHeadGripper
 import os
-import time
-import speech_recognition as sr
-import threading
-import queue
 import firebase_admin
 from firebase_admin import credentials, db
 
@@ -143,28 +139,23 @@ class Run:
             print("Navigating to storage")
             location = self.navigation('storage')
         
-        pick_status = False
-        while not pick_status:
-            detection = self.detection('pickup', product, True)
-            xmin = detection.xmin
-            xmax = detection.xmax
-            ymin = detection.ymin
-            ymax = detection.ymax
-            class_name = detection.class_name 
-            success = detection.success
-            message = detection.message
-            print(xmin, xmax, ymin, ymax)
-            print(message)
+        detection = self.detection('pickup', product, True)
+        xmin = detection.xmin
+        xmax = detection.xmax
+        ymin = detection.ymin
+        ymax = detection.ymax
+        class_name = detection.class_name 
+        success = detection.success
+        message = detection.message
+        print(xmin, xmax, ymin, ymax)
+        print(message)
 
-            if not success:
-                return False
+        if not success:
+            return False
 
-            action2 = "Pick"
-            self.text2audio(f"Picking up the {class_name}.")
-            pick_status = self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name)
-            if not pick_status:
-                location = self.navigation('storage')
-        
+        action2 = "Pick"
+        self.text2audio(f"Picking up the {class_name}.")
+        self.arm_manipulation(action2, xmin, ymin, xmax, ymax, class_name)
 
         print("Navigating to shelf")
         location = self.navigation('shelf')

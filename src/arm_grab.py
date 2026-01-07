@@ -46,8 +46,8 @@ class ArmManipulation:
         self.latest_detection_result = None  
         self.gripper_region = {
             "xmin": 256,
-            "xmax": 357,
             "ymin": 450,
+            "xmax": 357,
             "ymax": 472
         }
         self.gripper_angle = 0.3
@@ -198,11 +198,10 @@ class ArmManipulation:
             detection['class_name']
         )
 
-        if self.check_region_clear(self.gripper_region):
-            message = f"I have picked up the {detection['class_name']} from the table"
+        if success:
+            message = f"Successfully picked up the {req.class_name}"
         else:
-            success = False
-            message = "Could not safely pick up the object"
+            message = f"Failed to pick up the {req.class_name}"
 
         response.success = success
         response.message = message 
@@ -297,10 +296,10 @@ class ArmManipulation:
             return None
     
     def set_gripper_joint(self, class_name):
-        if class_name in ['juice', 'yogurt']:
+        if class_name == 'juice':
             self.gripper_angle = 0.25  # Open wider for drinks
-        elif class_name == 'milk':
-            self.gripper_angle = 0.4  # Tighter grip for milk
+        elif class_name in ['milk', 'yogurt']:
+            self.gripper_angle = 0.35  # Tighter grip for milk
         elif class_name == 'chips':
             self.gripper_angle = 0  # Medium grip for chips
         else:
@@ -357,7 +356,7 @@ class ArmManipulation:
             distance = self.get_robust_depth(center_x, center_y, box_width, box_height)
             error_x = center_x - image_center_x
             angular_speed = -0.002 * error_x
-            forward_speed = 0.15
+            forward_speed = 0.1
             rospy.loginfo(f"Object {class_name} at distance: {distance:.2f} m")
 
             if not distance:
@@ -628,6 +627,9 @@ class ArmManipulation:
                 'ymax': obj.ymax
             }
 
+            print("Object box: ", obj_box)
+            print("Center box: ", center_box)
+
             if self.boxes_overlap(center_box, obj_box):
                 rospy.loginfo("Center region is blocked by an object.")
                 return False
@@ -669,13 +671,15 @@ class ArmManipulation:
         forward = 0
         # Adjust vertical position based on shelf level
         if level == "level 2":
-            y_offset = 90  # Shift box downward
+            y_offset = 75  # Shift box downward
+            x_offset = 30  # Make box smaller
         else:
             y_offset = 0
+            x_offset = 0
         
         center_box = {
-            "xmin": int(camera_center_x - center_region_width/3),
-            "xmax": int(camera_center_x + center_region_width/3),
+            "xmin": int(camera_center_x - center_region_width/3 + x_offset),
+            "xmax": int(camera_center_x + center_region_width/3 - x_offset),
             "ymin": int(camera_center_y - center_region_height/3 + y_offset),
             "ymax": int(camera_center_y + center_region_height/3 + y_offset)
         }
