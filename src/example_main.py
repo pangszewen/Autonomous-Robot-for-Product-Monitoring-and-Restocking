@@ -74,7 +74,7 @@ class Run:
                 if count == 0:
                     oos_list.append(class_name)
 
-        return oos_list
+        self.out_of_stock = oos_list
 
     """ Below are the service calls examples """
 
@@ -205,13 +205,14 @@ class Run:
                                 break
                         else:
                             # Out of stock
+                            self.get_oos_list()
                             print(f"Out of stock list: {self.out_of_stock}")
                             self.alert_notification(product)
                             break
                     if stock_status:
                         self.text2audio(f"The product {product} has been restocked.")
                 # Refresh out of stock list after each product restocking attempt 
-                self.out_of_stock = self.get_oos_list()
+                self.get_oos_list()
             return True
         else:
             # No low stock products

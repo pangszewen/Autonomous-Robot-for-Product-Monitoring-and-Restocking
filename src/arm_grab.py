@@ -299,7 +299,7 @@ class ArmManipulation:
         if class_name == 'juice':
             self.gripper_angle = 0.25  # Open wider for drinks
         elif class_name in ['milk', 'yogurt']:
-            self.gripper_angle = 0.35  # Tighter grip for milk
+            self.gripper_angle = 0.33  # Tighter grip for milk
         elif class_name == 'chips':
             self.gripper_angle = 0  # Medium grip for chips
         else:
