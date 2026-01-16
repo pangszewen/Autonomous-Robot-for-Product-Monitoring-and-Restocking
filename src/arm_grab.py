@@ -672,7 +672,7 @@ class ArmManipulation:
         # Adjust vertical position based on shelf level
         if level == "level 2":
             y_offset = 75  # Shift box downward
-            x_offset = 30  # Make box smaller
+            x_offset = 25  # Make box smaller
         else:
             y_offset = 0
             x_offset = 0

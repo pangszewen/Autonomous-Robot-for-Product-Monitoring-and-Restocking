@@ -13,10 +13,11 @@ const firebaseConfig = {
   appId: "1:778054405641:web:f191cef429853b3b40b2d8",
   measurementId: "G-RE74HTTLKR"
 };
+
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
 
-// Initialize Firebase
 try {
   // Reference the database path
   const productCountRef = ref(database, "product_counts");
@@ -64,7 +65,6 @@ try {
                   }
                 });
 
-                // ✅ MOVED INSIDE: Update previousOOS after processing
                 previousOOS = [...currentOutOfStock];
 
               } catch (error) {
